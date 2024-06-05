@@ -25,4 +25,5 @@ impl TryFrom<Vec<u8>> for ServerCertHash {
 }
 
 /// Key for `netcode` connection requests inserted as query pairs into `WebTransport` connection requests.
+#[cfg(any(feature = "wt_server_transport", feature = "wt_client_transport"))]
 pub(crate) const WT_CONNECT_REQ: &str = "creq";

@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "examples/echo_client_native",
-    #"examples/echo_client_wt", # requires wasm32-unknown-unknown target
+    "examples/echo_client_wt", # requires wasm32-unknown-unknown target
     "examples/echo_server_cross",
     "demo_chat",
     "demo_bevy",

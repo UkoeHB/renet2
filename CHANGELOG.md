@@ -5,6 +5,7 @@
 - Implement https://github.com/lucaspoffo/renet/pull/158.
 - Bump `bevy_replicon_renet2` to v0.0.4 for `bevy_replicon` v0.26.
 - Loosen `cfg` on `webtransport_socket` module.
+- Optimize WebTransport client reader so datagrams are read directly into the packet buffer.
 
 ## 0.0.3 - 05/24/2024
 

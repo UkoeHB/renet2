@@ -1,13 +1,12 @@
 use std::{
-    io::ErrorKind,
-    net::SocketAddr,
-    sync::{
+    io::ErrorKind, net::SocketAddr, pin::Pin, sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
-    },
+    }
 };
 
 use fragile::Fragile;
+use futures::{future::{FusedFuture, MaybeDone}, Future};
 use js_sys::{Promise, Uint8Array};
 use log::{debug, error, warn};
 use renetcode2::NETCODE_MAX_PACKET_BYTES;
@@ -126,14 +125,81 @@ impl WebTransportClientConfig {
     }
 }
 
+struct WtStreamIo {
+    writer: Fragile<WritableStreamDefaultWriter>,
+    reader: Fragile<ReadableStreamDefaultReader>,
+}
+
+struct WtReader {
+    fut: Fragile<MaybeDone<JsFuture>>,
+    reader: Option<Fragile<ReadableStreamDefaultReader>>,
+}
+
+impl WtReader {
+    fn new() -> Self {
+        Self{ fut: Fragile::new(MaybeDone::Gone), reader: None }
+    }
+
+    fn set_reader(&mut self, reader: Fragile<ReadableStreamDefaultReader>)
+    {
+        self.reader = Some(reader);
+    }
+
+    /// Receives packets from the WebTransport server and writes them to `buffer`.
+    fn try_recv(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let Some(reader) = self.reader.as_ref().map(Fragile::get) else {
+            return Err(std::io::Error::from(ErrorKind::WouldBlock));
+        };
+
+        // request the next packet
+        let fut = self.fut.get_mut();
+        if matches!(fut, MaybeDone::Gone) {
+            *fut = futures::future::maybe_done(JsFuture::from(reader.read()));
+        }
+
+        // poll the future once
+        let mut pinned_fut = Pin::new(fut);
+
+        if !pinned_fut.is_terminated()
+        {
+            let noop_waker = futures::task::noop_waker();
+            let mut ctx = futures::task::Context::from_waker(&noop_waker);
+            let _ = pinned_fut.as_mut().poll(&mut ctx);
+        }
+
+        // check the future
+        let incoming = match pinned_fut.take_output()
+        {
+            Some(Ok(res)) => res,
+            Some(Err(_)) => return Err(std::io::Error::from(ErrorKind::ConnectionAborted)),
+            None => return Err(std::io::Error::from(ErrorKind::WouldBlock)),
+        };
+
+        // write output to the buffer
+        let result: ReadableStreamDefaultReadResult = incoming.into();
+        if result.is_done() {
+            return Err(std::io::Error::from(ErrorKind::ConnectionAborted));
+        }
+        let data: Uint8Array = result.value().into();
+        let len = data.length() as usize;
+        if len > buffer.len() {
+            error!("received packet that is too large from the webtransport server {}", len);
+            return Err(std::io::Error::from(ErrorKind::InvalidData));
+        }
+        data.copy_to(&mut buffer[..len]);
+
+        Ok(len)
+    }
+}
+
 /// Implementation of [`TransportSocket`] for WebTransport clients.
 pub struct WebTransportClient {
     server_address: SocketAddr,
     connect_req_sender: async_channel::Sender<Vec<u8>>,
-    incoming_receiver: async_channel::Receiver<Vec<u8>>,
     close_sender: async_channel::Sender<()>,
-    writer_receiver: async_channel::Receiver<Fragile<WritableStreamDefaultWriter>>,
+    io_receiver: async_channel::Receiver<WtStreamIo>,
     writer: Option<Fragile<WritableStreamDefaultWriter>>,
+    reader: WtReader,
     closed: Arc<AtomicBool>,
     is_disconnected: bool,
     sent_connection_request: bool,
@@ -145,9 +211,8 @@ impl WebTransportClient {
         let options = config.wt_options();
 
         let (close_sender, close_receiver) = async_channel::unbounded::<()>();
-        let (incoming_sender, incoming_receiver) = async_channel::unbounded::<Vec<u8>>();
         let (connect_req_sender, connect_req_receiver) = async_channel::bounded::<Vec<u8>>(1);
-        let (writer_sender, writer_receiver) = async_channel::bounded::<Fragile<WritableStreamDefaultWriter>>(1);
+        let (io_sender, io_receiver) = async_channel::bounded::<WtStreamIo>(1);
         let closed = Arc::new(AtomicBool::new(false));
 
         let inner_close_sender = close_sender.clone();
@@ -188,23 +253,22 @@ impl WebTransportClient {
                 }
             };
 
-            // Send writer to client if not yet closed.
+            // Prep reader.
+            let reader = web_transport.datagrams().readable().get_reader();
+            let reader: ReadableStreamDefaultReader = JsValue::from(reader).into();
+
+            // Send channels to client if not yet closed.
             // - We need to be careful no race conditions exist where the writer won't be closed when the client has
             //   closed.
             if !inner_closed.load(Ordering::Relaxed) {
                 let writer = Fragile::new(writer);
-                let _ = writer_sender.try_send(writer);
+                let reader = Fragile::new(reader);
+                let _ = io_sender.try_send(WtStreamIo{ writer, reader });
             } else {
                 handle_promise(writer.close());
                 web_transport.close();
                 return;
             }
-
-            // Prep reader.
-            let reader = web_transport.datagrams().readable().get_reader();
-            let reader: ReadableStreamDefaultReader = JsValue::from(reader).into();
-            let reader_closed = inner_closed.clone();
-            Self::reader_task(reader, reader_closed, incoming_sender);
 
             // Wait for close.
             let _ = close_receiver.recv().await;
@@ -216,10 +280,10 @@ impl WebTransportClient {
         Self {
             server_address: config.server_addr,
             connect_req_sender,
-            incoming_receiver,
             close_sender,
-            writer_receiver,
+            io_receiver,
             writer: None,
+            reader: WtReader::new(),
             closed,
             is_disconnected: false,
             sent_connection_request: false,
@@ -236,14 +300,15 @@ impl WebTransportClient {
 
     pub fn disconnect(&mut self) {
         let _ = self.close_sender.send(());
-        if let Ok(writer) = self.writer_receiver.try_recv() {
+        if let Ok(io) = self.io_receiver.try_recv() {
             // Collect the writer just in case it's stuck in its channel.
-            self.writer = Some(writer);
+            self.writer = Some(io.writer);
         }
         if let Some(writer) = self.writer.as_ref().map(Fragile::get) {
             handle_promise(writer.close());
         }
         self.writer = None;
+        self.reader = WtReader::new();
         self.is_disconnected = true;
         self.closed.store(true, Ordering::Relaxed);
     }
@@ -263,7 +328,7 @@ impl WebTransportClient {
     }
 
     /// Launches the reader task that receives packets from the server.
-    fn reader_task(reader: ReadableStreamDefaultReader, reader_closed: Arc<AtomicBool>, incoming_sender: async_channel::Sender<Vec<u8>>) {
+    fn _reader_task(reader: ReadableStreamDefaultReader, reader_closed: Arc<AtomicBool>, incoming_sender: async_channel::Sender<Vec<u8>>) {
         spawn_local(async move {
             loop {
                 if reader_closed.load(Ordering::Relaxed) {
@@ -349,10 +414,11 @@ impl TransportSocket for WebTransportClient {
             self.disconnect();
         }
 
-        // Collect the writer after init.
+        // Collect the io channels after init.
         if self.writer.is_none() {
-            if let Ok(writer) = self.writer_receiver.try_recv() {
-                self.writer = Some(writer);
+            if let Ok(io) = self.io_receiver.try_recv() {
+                self.writer = Some(io.writer);
+                self.reader.set_reader(io.reader);
             }
         }
     }
@@ -361,18 +427,8 @@ impl TransportSocket for WebTransportClient {
         if self.is_closed() {
             return Err(std::io::Error::from(ErrorKind::ConnectionAborted));
         }
-
-        let Ok(packet) = self.incoming_receiver.try_recv() else {
-            return Err(std::io::Error::from(ErrorKind::WouldBlock));
-        };
-
-        if packet.len() > buffer.len() {
-            return Err(std::io::Error::from(ErrorKind::InvalidData));
-        }
-
-        buffer[..packet.len()].copy_from_slice(&packet[..]);
-
-        Ok((packet.len(), self.server_address()))
+        let num_bytes = self.reader.try_recv(buffer)?;
+        Ok((num_bytes, self.server_address()))
     }
 
     fn postupdate(&mut self) {}
