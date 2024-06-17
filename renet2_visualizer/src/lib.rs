@@ -163,12 +163,12 @@ impl<const N: usize> RenetClientVisualizer<N> {
         );
     }
 
-    /// Draws only the Round Time Trip metric.
+    /// Draws only the Round Trip Time metric.
     pub fn draw_rtt(&self, ui: &mut egui::Ui) {
         show_graph(
             ui,
             &self.style,
-            "Round Time Trip (ms)",
+            "Round Trip Time (ms)",
             TextFormat::Normal,
             TopValue::SuggestedValues([32., 64., 128., 256., 512.]),
             self.rtt.as_vec(),
