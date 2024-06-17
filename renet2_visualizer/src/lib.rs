@@ -274,6 +274,44 @@ impl<const N: usize> RenetServerVisualizer<N> {
         }
     }
 
+    /// Draw UI showing all metrics for one or all clients, without a window around it.
+    pub fn draw_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.show_all_clients, "Show all clients");
+            ui.add_enabled_ui(!self.show_all_clients, |ui| {
+                let selected_text = match self.selected_client {
+                    Some(client_id) => format!("{}", client_id),
+                    None => "------".to_string(),
+                };
+                egui::ComboBox::from_label("Select client")
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        for client_id in self.clients.keys() {
+                            ui.selectable_value(&mut self.selected_client, Some(*client_id), format!("{}", client_id));
+                        }
+                    })
+            });
+        });
+        ui.vertical(|ui| {
+            if self.show_all_clients {
+                for (client_id, client) in self.clients.iter() {
+                    ui.vertical(|ui| {
+                        ui.heading(format!("Client {}", client_id));
+                        ui.horizontal(|ui| {
+                            client.draw_all(ui);
+                        });
+                    });
+                }
+            } else if let Some(selected_client) = self.selected_client {
+                if let Some(client) = self.clients.get(&selected_client) {
+                    ui.horizontal(|ui| {
+                        client.draw_all(ui);
+                    });
+                }
+            }
+        });
+    }
+
     /// Renders a new window with all the graphs metrics drawn. You can choose to show metrics for
     /// all connected clients or for only one chosen by a dropdown.
     pub fn show_window(&mut self, ctx: &egui::Context) {
@@ -281,40 +319,7 @@ impl<const N: usize> RenetServerVisualizer<N> {
             .resizable(false)
             .collapsible(true)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.show_all_clients, "Show all clients");
-                    ui.add_enabled_ui(!self.show_all_clients, |ui| {
-                        let selected_text = match self.selected_client {
-                            Some(client_id) => format!("{}", client_id),
-                            None => "------".to_string(),
-                        };
-                        egui::ComboBox::from_label("Select client")
-                            .selected_text(selected_text)
-                            .show_ui(ui, |ui| {
-                                for client_id in self.clients.keys() {
-                                    ui.selectable_value(&mut self.selected_client, Some(*client_id), format!("{}", client_id));
-                                }
-                            })
-                    });
-                });
-                ui.vertical(|ui| {
-                    if self.show_all_clients {
-                        for (client_id, client) in self.clients.iter() {
-                            ui.vertical(|ui| {
-                                ui.heading(format!("Client {}", client_id));
-                                ui.horizontal(|ui| {
-                                    client.draw_all(ui);
-                                });
-                            });
-                        }
-                    } else if let Some(selected_client) = self.selected_client {
-                        if let Some(client) = self.clients.get(&selected_client) {
-                            ui.horizontal(|ui| {
-                                client.draw_all(ui);
-                            });
-                        }
-                    }
-                });
+                self.draw_ui(ui);
             });
     }
 }
