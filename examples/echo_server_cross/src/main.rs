@@ -44,7 +44,7 @@ fn main() {
     // Save connection info
     let client_connection_info = ClientConnectionInfo {
         native_addr: native_socket.addr().unwrap().to_string().into(),
-        wt_dest: WebServerDestination::from(wt_socket.addr().unwrap()).into(),
+        wt_dest: wt_socket.addr().unwrap().into(),
         cert_hash,
     };
 
