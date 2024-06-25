@@ -7,8 +7,7 @@ use warp::Filter;
 use log::{debug, info};
 use renet2::{
     transport::{
-        BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebServerDestination,
-        WebServerDestinationSerializable, WebTransportServer, WebTransportServerConfig,
+        BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebServerDestination, WebTransportServer, WebTransportServerConfig,
     },
     ConnectionConfig, DefaultChannel, RenetServer, ServerEvent,
 };
@@ -16,7 +15,7 @@ use renetcode2::ServerAuthentication;
 
 struct ClientConnectionInfo {
     native_addr: String,
-    wt_dest: WebServerDestinationSerializable,
+    wt_dest: WebServerDestination,
     cert_hash: ServerCertHash,
 }
 

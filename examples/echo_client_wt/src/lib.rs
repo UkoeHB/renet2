@@ -1,4 +1,9 @@
-use renet2::{transport::{CongestionControl, NetcodeClientTransport, ServerCertHash, WebServerDestination, WebServerDestinationSerializable, WebTransportClient, WebTransportClientConfig}, ConnectionConfig, DefaultChannel, RenetClient};
+use renet2::{
+    transport::{
+        CongestionControl, NetcodeClientTransport, ServerCertHash, WebServerDestination, WebTransportClient, WebTransportClientConfig,
+    },
+    ConnectionConfig, DefaultChannel, RenetClient,
+};
 use renetcode2::ClientAuthentication;
 use std::time::Duration;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
@@ -19,10 +24,11 @@ impl ChatApplication {
 
         // Wait for renet2 server connection info.
         let (server_dest, server_cert_hash) = reqwest::get("http://127.0.0.1:4433/wasm")
-            .await.unwrap()
-            .json::<(WebServerDestinationSerializable, ServerCertHash)>()
-            .await.unwrap();
-        let server_dest: WebServerDestination = server_dest.try_into().unwrap();
+            .await
+            .unwrap()
+            .json::<(WebServerDestination, ServerCertHash)>()
+            .await
+            .unwrap();
 
         // Setup
         let connection_config = ConnectionConfig::default();
@@ -31,11 +37,11 @@ impl ChatApplication {
         let client_auth = ClientAuthentication::Unsecure {
             client_id: current_time.as_millis() as u64,
             protocol_id: 0,
-            socket_id: 1,  //Webtransport socket id is 1 in this example
+            socket_id: 1, //Webtransport socket id is 1 in this example
             server_addr: server_dest.clone().into(),
             user_data: None,
         };
-        let socket_config = WebTransportClientConfig{
+        let socket_config = WebTransportClientConfig {
             server_dest: server_dest.into(),
             congestion_control: CongestionControl::default(),
             server_cert_hashes: Vec::from([server_cert_hash]),

@@ -16,9 +16,7 @@ use wasm_bindgen::{prelude::Closure, JsValue};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{ReadableStreamDefaultReader, WritableStreamDefaultWriter};
 
-use crate::transport::{
-    NetcodeTransportError, ServerCertHash, TransportSocket, WebServerDestination, WebServerDestinationSerializable, WT_CONNECT_REQ,
-};
+use crate::transport::{NetcodeTransportError, ServerCertHash, TransportSocket, WebServerDestination, WT_CONNECT_REQ};
 
 use super::bindings::{
     ReadableStreamDefaultReadResult, WebTransport, WebTransportCongestionControl, WebTransportError, WebTransportHash, WebTransportOptions,
@@ -58,7 +56,7 @@ pub struct WebTransportClientConfig {
     /// The server's address that receives connections.
     ///
     /// See [`WebServerDestination`].
-    pub server_dest: WebServerDestinationSerializable,
+    pub server_dest: WebServerDestination,
     /// The [`CongestionControl`] that controls how channels are set up.
     ///
     /// Check [browser availability][browser_availability], as this is an experimental feature.
@@ -87,7 +85,7 @@ impl WebTransportClientConfig {
     /// Use [`Self::new_with_certs`] if your server has a private authentication structure.
     pub fn new(server_dest: impl Into<WebServerDestination>) -> Self {
         Self {
-            server_dest: server_dest.into().into(),
+            server_dest: server_dest.into(),
             congestion_control: CongestionControl::default(),
             server_cert_hashes: Vec::default(),
         }
@@ -96,7 +94,7 @@ impl WebTransportClientConfig {
     /// Makes a new config with default [`CongestionControl`].
     pub fn new_with_certs(server_dest: impl Into<WebServerDestination>, server_cert_hashes: Vec<ServerCertHash>) -> Self {
         Self {
-            server_dest: server_dest.into().into(),
+            server_dest: server_dest.into(),
             congestion_control: CongestionControl::default(),
             server_cert_hashes,
         }
@@ -151,7 +149,6 @@ impl WebTransportClient {
     /// Makes a new WebTransport client that will connect to a WebTransport server.
     pub fn new(config: WebTransportClientConfig) -> Self {
         let options = config.wt_options();
-        let server_dest: WebServerDestination = config.server_dest.try_into().expect("failed deserializing server destination");
 
         let (close_sender, close_receiver) = async_channel::unbounded::<()>();
         let (incoming_sender, incoming_receiver) = async_channel::unbounded::<Vec<u8>>();
@@ -159,7 +156,7 @@ impl WebTransportClient {
         let (writer_sender, writer_receiver) = async_channel::bounded::<Fragile<WritableStreamDefaultWriter>>(1);
         let closed = Arc::new(AtomicBool::new(false));
 
-        let inner_server_dest = server_dest.clone();
+        let inner_server_dest = config.server_dest.clone();
         let inner_close_sender = close_sender.clone();
         let inner_closed = closed.clone();
         spawn_local(async move {
@@ -227,8 +224,12 @@ impl WebTransportClient {
         });
 
         Self {
-            server_url: server_dest.clone().try_into().expect("could not convert server destination to url"),
-            server_address: server_dest.into(),
+            server_url: config
+                .server_dest
+                .clone()
+                .try_into()
+                .expect("could not convert server destination to url"),
+            server_address: config.server_dest.into(),
             connect_req_sender,
             incoming_receiver,
             close_sender,

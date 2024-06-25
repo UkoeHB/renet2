@@ -39,6 +39,7 @@ impl TryFrom<Vec<u8>> for ServerCertHash {
 /// The conversion `SocketAddr::from(WebServerDestination::Url)` is *not* reversible. The conversion involves
 /// hashing the URL and pasting it into the socket address bytes (28 bytes total).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WebServerDestination {
     Addr(SocketAddr),
     /// The server destination as a URL.
@@ -75,33 +76,6 @@ impl TryFrom<WebServerDestination> for url::Url {
         match dest {
             WebServerDestination::Addr(addr) => wt_server_addr_to_url(addr),
             WebServerDestination::Url(url) => Ok(url),
-        }
-    }
-}
-
-/// Serializable version of [`WebServerDestination`].
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum WebServerDestinationSerializable {
-    Addr(String),
-    Url(String),
-}
-
-impl From<WebServerDestination> for WebServerDestinationSerializable {
-    fn from(dest: WebServerDestination) -> Self {
-        match dest {
-            WebServerDestination::Addr(addr) => Self::Addr(addr.to_string()),
-            WebServerDestination::Url(url) => Self::Addr(url.to_string()),
-        }
-    }
-}
-
-impl TryFrom<WebServerDestinationSerializable> for WebServerDestination {
-    type Error = ();
-    fn try_from(dest: WebServerDestinationSerializable) -> Result<Self, Self::Error> {
-        match dest {
-            WebServerDestinationSerializable::Addr(addr) => Ok(Self::Addr(addr.parse().map_err(|_| ())?)),
-            WebServerDestinationSerializable::Url(url) => Ok(Self::Url(url.parse().map_err(|_| ())?)),
         }
     }
 }
