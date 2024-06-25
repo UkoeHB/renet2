@@ -24,7 +24,7 @@ use std::{
     vec,
 };
 
-use crate::transport::{NetcodeTransportError, TransportSocket, WT_CONNECT_REQ};
+use crate::transport::{NetcodeTransportError, TransportSocket, WebServerDestination, WT_CONNECT_REQ};
 
 use crate::transport::ServerCertHash;
 
@@ -56,14 +56,32 @@ pub struct WebTransportServerConfig {
 }
 
 impl WebTransportServerConfig {
-    /// Makes a new config with a self-signed [`Certificate`].
+    /// Makes a new config with a self-signed [`Certificate`] tied to the `listen` address.
     ///
     /// Returns the [`ServerCertHash`] of the certificate, which can be used to set up clients via
     /// `WebTransportClientConfig`.
     ///
     /// The certificate produced will be valid for two weeks (minus one hour and one minute).
+    ///
+    /// Use [`Self::new_selfsigned_with_proxies`] if you want the certificate to bind to a URL (e.g. domain name).
     pub fn new_selfsigned(listen: SocketAddr, max_clients: usize) -> (Self, ServerCertHash) {
-        let (cert, key) = generate_self_signed_certificate_opinionated([listen.to_string()]).unwrap();
+        Self::new_selfsigned_with_proxies(listen, vec![listen.into()], max_clients)
+    }
+
+    /// Makes a new config with a self-signed [`Certificate`] tied to the `proxies` destinations.
+    ///
+    /// Returns the [`ServerCertHash`] of the certificate, which can be used to set up clients via
+    /// `WebTransportClientConfig`.
+    ///
+    /// The certificate produced will be valid for two weeks (minus one hour and one minute).
+    ///
+    /// Use [`Self::new_selfsigned_with_proxies`] if you only want the certificate to bind to the `listen` address.
+    pub fn new_selfsigned_with_proxies(
+        listen: SocketAddr,
+        proxies: Vec<WebServerDestination>,
+        max_clients: usize,
+    ) -> (Self, ServerCertHash) {
+        let (cert, key) = generate_self_signed_certificate_opinionated(proxies).unwrap();
         let hash = get_server_cert_hash(&cert);
         let config = WebTransportServerConfig {
             cert,

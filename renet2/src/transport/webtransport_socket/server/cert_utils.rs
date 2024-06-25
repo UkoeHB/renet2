@@ -5,7 +5,7 @@ use time::{ext::NumericalDuration, OffsetDateTime};
 
 use std::path::PathBuf;
 
-use crate::transport::ServerCertHash;
+use crate::transport::{ServerCertHash, WebServerDestination};
 
 /// Generates a self-signed certificate for use in [`WebTransportConfig`].
 ///
@@ -25,8 +25,8 @@ pub fn generate_self_signed_certificate(params: CertificateParams) -> Result<(Ce
 /// - ECDSA is used, not RSA.
 ///
 /// The [`PrivateKey`] should not be publicized.
-pub fn generate_self_signed_certificate_opinionated(
-    subject_alt_names: impl IntoIterator<Item = String>,
+pub fn generate_self_signed_certificate_opinionated<T: Into<WebServerDestination>>(
+    subject_alt_names: impl IntoIterator<Item = T>,
 ) -> Result<(Certificate, PrivateKey), rcgen::Error> {
     let not_before = OffsetDateTime::now_utc().saturating_sub(1.hours()); //adjust for client system time variance
     let not_after = not_before.saturating_add(2.weeks().saturating_sub(1.minutes())); //less than 2 weeks
@@ -35,9 +35,9 @@ pub fn generate_self_signed_certificate_opinionated(
 
     let subject_alt_names = subject_alt_names
         .into_iter()
-        .map(|s| match s.parse() {
-            Ok(ip) => SanType::IpAddress(ip),
-            Err(_) => SanType::DnsName(s),
+        .map(|d| match d.into() {
+            WebServerDestination::Addr(addr) => SanType::IpAddress(addr.ip()),
+            WebServerDestination::Url(url) => SanType::URI(url.into()),
         })
         .collect::<Vec<_>>();
 

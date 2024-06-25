@@ -24,7 +24,11 @@ bevy = ["dep:bevy_ecs", "dep:bevy_reflect"]
 serde = ["dep:serde", "serde/serde_derive"]
 
 # Enable transports
-transport = ["dep:renetcode2"]
+transport = [
+    "dep:renetcode2",
+    "dep:hmac-sha256",
+    "dep:url",
+]
 
 # Enable native UdpSocket transports
 native_transport = ["transport"]
@@ -50,9 +54,8 @@ wt_server_transport = [
     #"dep:x509-cert",
     #"dep:spki",
     #"dep:base64",
-    "dep:hmac-sha256",
     "dep:serde_json",
-    "dep:form_urlencoded"
+    "dep:form_urlencoded",
 ]
 
 # Enable the WebTransport client transport (WASM only)
@@ -60,7 +63,6 @@ wt_client_transport = [
     "transport",
     "dep:async-channel",
     "dep:fragile",
-    "dep:url",
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
     "dep:futures",
@@ -79,6 +81,8 @@ log = "0.4"
 octets = "0.3"
 renetcode2 = { path = "../renetcode2", version = "0.0.3", optional = true }
 serde = { version = "1.0", optional = true }
+hmac-sha256 = { version = "1.1", optional = true }
+url = { version = "2.4", optional = true }
 
 # In-memory transport socket
 crossbeam = { version = "0.8", optional = true }
@@ -107,13 +111,11 @@ time = { version = "0.3", optional = true }
 #x509-cert = { version = "0.2", optional = true }
 #spki = { version = "0.7", optional = true, features = ["fingerprint"] }
 #base64 = { version = "0.22", optional = true }
-hmac-sha256 = { version = "1.1", optional = true }
 form_urlencoded = { version = "1.2", optional = true }
 
 # WebTransport client
 async-channel = { version = "2.2", optional = true }
 fragile = { version = "2.0", optional = true }
-url = { version = "2.4", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }

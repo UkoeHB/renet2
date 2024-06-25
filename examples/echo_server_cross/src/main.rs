@@ -7,8 +7,8 @@ use warp::Filter;
 use log::{debug, info};
 use renet2::{
     transport::{
-        BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebTransportServer,
-        WebTransportServerConfig,
+        BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebServerDestination,
+        WebServerDestinationSerializable, WebTransportServer, WebTransportServerConfig,
     },
     ConnectionConfig, DefaultChannel, RenetServer, ServerEvent,
 };
@@ -16,13 +16,14 @@ use renetcode2::ServerAuthentication;
 
 struct ClientConnectionInfo {
     native_addr: String,
-    wt_addr: String,
+    wt_dest: WebServerDestinationSerializable,
     cert_hash: ServerCertHash,
 }
 
 fn main() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
+        .filter_module("h3::server", log::LevelFilter::Warn)
         .filter_module("h3::server::connection", log::LevelFilter::Warn)
         .init();
 
@@ -44,7 +45,7 @@ fn main() {
     // Save connection info
     let client_connection_info = ClientConnectionInfo {
         native_addr: native_socket.addr().unwrap().to_string().into(),
-        wt_addr: wt_socket.addr().unwrap().to_string().into(),
+        wt_dest: WebServerDestination::from(wt_socket.addr().unwrap()).into(),
         cert_hash,
     };
 
@@ -73,14 +74,14 @@ fn main() {
 
 async fn run_http_server(http_addr: SocketAddr, client_connection_info: ClientConnectionInfo) {
     let native_addr = client_connection_info.native_addr;
-    let wt_addr = client_connection_info.wt_addr;
+    let wt_dest = client_connection_info.wt_dest;
     let cert_hash = client_connection_info.cert_hash;
 
     let native = warp::path!("native").map(move || warp::reply::json(&native_addr));
 
     let cors = warp::cors().allow_any_origin();
     let wasm = warp::path!("wasm")
-        .map(move || warp::reply::json(&(&wt_addr, &cert_hash)))
+        .map(move || warp::reply::json(&(&wt_dest, &cert_hash)))
         .with(cors);
 
     let routes = warp::get().and(native.or(wasm));
