@@ -37,7 +37,10 @@ pub fn generate_self_signed_certificate_opinionated<T: Into<WebServerDestination
         .into_iter()
         .map(|d| match d.into() {
             WebServerDestination::Addr(addr) => SanType::IpAddress(addr.ip()),
-            WebServerDestination::Url(url) => SanType::URI(url.into()),
+            WebServerDestination::Url(url) => match url.domain() {
+                Some(domain) => SanType::DnsName(domain.into()),
+                None => SanType::URI(url.into()),
+            },
         })
         .collect::<Vec<_>>();
 

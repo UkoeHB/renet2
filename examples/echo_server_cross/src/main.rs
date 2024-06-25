@@ -7,7 +7,8 @@ use warp::Filter;
 use log::{debug, info};
 use renet2::{
     transport::{
-        BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebServerDestination, WebTransportServer, WebTransportServerConfig,
+        BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebServerDestination,
+        WebTransportServer, WebTransportServerConfig,
     },
     ConnectionConfig, DefaultChannel, RenetServer, ServerEvent,
 };
