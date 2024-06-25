@@ -41,6 +41,10 @@ impl TryFrom<Vec<u8>> for ServerCertHash {
 #[derive(Debug, Clone)]
 pub enum WebServerDestination {
     Addr(SocketAddr),
+    /// The server destination as a URL.
+    ///
+    /// This URL [must include](https://developer.mozilla.org/en-US/docs/Web/API/WebTransport/WebTransport) the
+    /// port number explicitly.
     Url(url::Url),
 }
 
