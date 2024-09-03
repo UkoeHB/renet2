@@ -135,7 +135,7 @@ impl RepliconRenetServerPlugin {
         mut renet_server: ResMut<RenetServer>,
         mut replicon_server: ResMut<RepliconServer>,
     ) {
-        for client_id in connected_clients.iter_client_ids() {
+        for &client_id in connected_clients.iter() {
             let renet_client_id = renet2::ClientId::from_raw(client_id.get());
             for channel_id in 0..channels.client_channels().len() as u8 {
                 while let Some(message) = renet_server.receive_message(renet_client_id, channel_id) {
