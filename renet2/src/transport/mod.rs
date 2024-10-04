@@ -9,6 +9,9 @@ mod server;
 mod transport_socket;
 mod webtransport_socket;
 
+// #[cfg(feature = "ws_server_transport")]
+mod websocket;
+
 pub use client::*;
 pub use server::*;
 pub use transport_socket::*;
@@ -18,6 +21,9 @@ pub use memory_socket::*;
 #[cfg(all(feature = "native_transport", not(target_family = "wasm")))]
 pub use native_socket::*;
 pub use webtransport_socket::*;
+
+// #[cfg(feature = "ws_server_transport")]
+pub use websocket::*;
 
 pub use renetcode2::{
     generate_random_bytes, ClientAuthentication, ConnectToken, DisconnectReason as NetcodeDisconnectReason, NetcodeError,
