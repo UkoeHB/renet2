@@ -7,7 +7,6 @@ use tokio::{sync::mpsc, task::AbortHandle};
 use wtransport::error::SendDatagramError;
 
 use std::collections::HashMap;
-use std::future::IntoFuture;
 use std::ops::Bound::{Excluded, Included};
 use std::sync::atomic::AtomicU64;
 use std::{
@@ -106,7 +105,7 @@ impl WebTransportServerConfig {
             .with_no_client_auth()
             .with_single_cert(vec![self.cert], self.key)?;
 
-        tls_config.max_early_data_size = u32::MAX;
+        //tls_config.max_early_data_size = u32::MAX;
         // We set the ALPN protocols to h3 as first, so that the browser will use the newest HTTP/3 draft and as fallback
         // we use older versions of HTTP/3 draft
         let alpn: Vec<Vec<u8>> = vec![
@@ -309,7 +308,7 @@ impl WebTransportServer {
             let client_iterator = client_iterator.clone();
             let connection_req_sender = connection_req_sender.clone();
             tokio::spawn(async move {
-                match incoming_connection.into_future().await {
+                match incoming_connection.await {
                     Ok(session_request) => {
                         match Self::handle_session_request(client_iterator, connection_req_sender, session_request).await {
                             Ok(maybe_session) => {

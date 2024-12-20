@@ -4,7 +4,7 @@ use std::{
 };
 use warp::Filter;
 
-use log::{debug, info};
+use log::{debug, info, trace};
 use renet2::{
     transport::{
         BoxedSocket, NativeSocket, NetcodeServerTransport, ServerCertHash, ServerSetupConfig, TransportSocket, WebServerDestination,
@@ -21,11 +21,7 @@ struct ClientConnectionInfo {
 }
 
 fn main() {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .filter_module("h3::server", log::LevelFilter::Warn)
-        .filter_module("h3::server::connection", log::LevelFilter::Warn)
-        .init();
+    env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
@@ -96,13 +92,13 @@ fn run_renet_server(mut transport: NetcodeServerTransport) {
     let mut last_updated = Instant::now();
 
     loop {
-        debug!("server tick");
+        trace!("server tick");
         let now = Instant::now();
         let duration = now - last_updated;
         last_updated = now;
 
         transport.update(duration, &mut server).unwrap();
-        debug!("server update");
+        trace!("server update");
 
         while let Some(event) = server.get_event() {
             match event {
