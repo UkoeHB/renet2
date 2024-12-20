@@ -1,16 +1,13 @@
 use anyhow::Error;
 use bytes::Bytes;
-use h3::{error::ErrorLevel, ext::Protocol, server::Connection};
-use h3_quinn::Connection as H3QuinnConnection;
-use h3_webtransport::server::WebTransportSession;
-use http::{uri::Uri, Method};
 use log::{debug, error, trace};
 use quinn::crypto::rustls::QuicServerConfig;
-use quinn::{EndpointConfig, TokioRuntime};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::{sync::mpsc, task::AbortHandle};
+use wtransport::error::SendDatagramError;
 
 use std::collections::HashMap;
+use std::future::IntoFuture;
 use std::ops::Bound::{Excluded, Included};
 use std::sync::atomic::AtomicU64;
 use std::{
@@ -93,6 +90,45 @@ impl WebTransportServerConfig {
 
         (config, hash)
     }
+
+    /// Converts self into a [`wtransport::ServerConfig`].
+    ///
+    /// Used automatically by [`WebTransportServer::new`].
+    pub fn create_server_config(self) -> Result<wtransport::ServerConfig, Error> {
+        // TODO: Allow injecting cert resolver via `with_cert_resolver()`, which would allow more than one certificate.
+        // That would be useful for long-lived servers whose clients are using ServerCertHash, since then you could
+        // specify many certificates (for the expected lifetime of the server) or even inject fresh ones via atomics
+        // and channels.
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
+        let mut tls_config = rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_no_client_auth()
+            .with_single_cert(vec![self.cert], self.key)?;
+
+        tls_config.max_early_data_size = u32::MAX;
+        // We set the ALPN protocols to h3 as first, so that the browser will use the newest HTTP/3 draft and as fallback
+        // we use older versions of HTTP/3 draft
+        let alpn: Vec<Vec<u8>> = vec![
+            b"h3".to_vec(),
+            b"h3-32".to_vec(),
+            b"h3-31".to_vec(),
+            b"h3-30".to_vec(),
+            b"h3-29".to_vec(),
+        ];
+        tls_config.alpn_protocols = alpn;
+
+        let mut server_config: quinn::ServerConfig = quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config)?));
+        let mut transport_config = quinn::TransportConfig::default();
+        transport_config.keep_alive_interval(Some(Duration::from_secs(2)));
+        server_config.transport = Arc::new(transport_config);
+
+        let wt_config = wtransport::ServerConfig::builder()
+            .with_bind_address(self.listen)
+            .build_with_quic_config(server_config);
+
+        Ok(wt_config)
+    }
 }
 
 impl Clone for WebTransportServerConfig {
@@ -111,7 +147,7 @@ struct WebTransportServerClient {
     /// Connection session.
     ///
     /// When this is dropped, the internal `H3QuinnConnection` will send a close message to the client.
-    session: Arc<WebTransportSession<H3QuinnConnection, bytes::Bytes>>,
+    session: wtransport::Connection,
     reader_receiver: crossbeam::channel::Receiver<Bytes>,
     abort_sender: mpsc::UnboundedSender<()>,
     /// When this struct is dropped, the reader thread will shut down automatically since the `abort_sender` channel
@@ -165,7 +201,7 @@ enum ClientConnectionResult {
     Success {
         client_idx: u64,
         client_id: u64,
-        session: WebTransportSession<H3QuinnConnection, Bytes>,
+        session: wtransport::Connection,
     },
     Failure {
         client_idx: u64,
@@ -180,7 +216,6 @@ pub struct WebTransportServer {
 
     addr: SocketAddr,
 
-    endpoint: quinn::Endpoint,
     connection_req_receiver: mpsc::Receiver<ConnectionRequest>,
     connection_receiver: mpsc::Receiver<ClientConnectionResult>,
     connection_abort_handle: AbortHandle,
@@ -205,13 +240,9 @@ impl WebTransportServer {
     /// - Errors if unable to bind to the [`WebTransportServerConfig::listen`] address, which can happen if your
     ///   machine is using all ports on a pre-defined IP address.
     pub fn new(config: WebTransportServerConfig, handle: tokio::runtime::Handle) -> Result<Self, Error> {
-        let target_addr = config.listen;
         let max_clients = config.max_clients;
-        let server_config = Self::create_server_config(config)?;
-        let socket = std::net::UdpSocket::bind(target_addr)?;
-        let endpoint = handle.block_on(async move {
-            quinn::Endpoint::new(EndpointConfig::default(), Some(server_config), socket, Arc::new(TokioRuntime))
-        })?;
+        let server_config = config.create_server_config()?;
+        let endpoint = handle.block_on(async move { wtransport::Endpoint::server(server_config) })?;
         let addr = endpoint.local_addr()?;
         let (sender, receiver) = mpsc::channel::<ClientConnectionResult>(max_clients);
         let client_iterator = Arc::new(AtomicU64::new(0));
@@ -220,7 +251,7 @@ impl WebTransportServer {
         let abort_handle = handle
             .spawn(Self::accept_connection(
                 sender,
-                endpoint.clone(),
+                endpoint,
                 client_iterator.clone(),
                 Arc::clone(&current_clients),
                 connection_req_sender,
@@ -231,7 +262,6 @@ impl WebTransportServer {
         Ok(Self {
             handle,
             addr,
-            endpoint,
             connection_req_receiver,
             connection_receiver: receiver,
             connection_abort_handle: abort_handle,
@@ -247,51 +277,41 @@ impl WebTransportServer {
     }
 
     /// Disconnects the server.
+    // TODO: verify that aborting the endpoint's thread is enough to shut it down properly
     pub fn close(&mut self) {
-        self.endpoint.close(0u32.into(), b"Server shutdown");
         self.connection_abort_handle.abort();
         self.closed = true;
     }
 
     async fn accept_connection(
         sender: mpsc::Sender<ClientConnectionResult>,
-        endpoint: quinn::Endpoint,
+        endpoint: wtransport::Endpoint<wtransport::endpoint::endpoint_side::Server>,
         client_iterator: Arc<AtomicU64>,
         current_clients: Arc<AtomicUsize>,
         connection_req_sender: mpsc::Sender<ConnectionRequest>,
         max_clients: usize,
     ) {
-        while let Some(new_conn) = endpoint.accept().await {
+        loop {
+            let incoming_connection = endpoint.accept().await;
+
+            // Check for capacity.
+            let is_full = {
+                let current_clients = current_clients.load(Ordering::Relaxed);
+                // We allow 25% extra clients in case clients want to override their old sessions.
+                (current_clients * 4) >= (max_clients * 5)
+            };
+            if is_full {
+                incoming_connection.refuse();
+                continue;
+            }
+
             let sender = sender.clone();
-            let current_clients = current_clients.clone();
             let client_iterator = client_iterator.clone();
             let connection_req_sender = connection_req_sender.clone();
             tokio::spawn(async move {
-                match new_conn.await {
-                    Ok(conn) => {
-                        let is_full = {
-                            let current_clients = current_clients.load(Ordering::Relaxed);
-                            // We allow 25% extra clients in case clients want to override their old sessions.
-                            (current_clients * 4) >= (max_clients * 5)
-                        };
-                        if is_full {
-                            conn.close(0u32.into(), b"Server full");
-                            return;
-                        }
-                        //todo: need max_field_section_size?
-                        let Ok(h3_conn) = h3::server::builder()
-                            .enable_webtransport(true)
-                            .enable_connect(true)
-                            .enable_datagram(true)
-                            .max_webtransport_sessions(1)
-                            .send_grease(true)
-                            .build(H3QuinnConnection::new(conn))
-                            .await
-                        else {
-                            return;
-                        };
-
-                        match Self::handle_connection(client_iterator, connection_req_sender, h3_conn).await {
+                match incoming_connection.into_future().await {
+                    Ok(session_request) => {
+                        match Self::handle_session_request(client_iterator, connection_req_sender, session_request).await {
                             Ok(maybe_session) => {
                                 if let Some(session) = maybe_session {
                                     if let Err(e) = sender.try_send(session) {
@@ -312,106 +332,58 @@ impl WebTransportServer {
         }
     }
 
-    fn create_server_config(config: WebTransportServerConfig) -> Result<quinn::ServerConfig, Error> {
-        // TODO: Allow injecting cert resolver via `with_cert_resolver()`, which would allow more than one certificate.
-        // That would be useful for long-lived servers whose clients are using ServerCertHash, since then you could
-        // specify many certificates (for the expected lifetime of the server) or even inject fresh ones via atomics
-        // and channels.
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-        }
-        let mut tls_config = rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-            .with_no_client_auth()
-            .with_single_cert(vec![config.cert], config.key)?;
-
-        tls_config.max_early_data_size = u32::MAX;
-        // We set the ALPN protocols to h3 as first, so that the browser will use the newest HTTP/3 draft and as fallback
-        // we use older versions of HTTP/3 draft
-        let alpn: Vec<Vec<u8>> = vec![
-            b"h3".to_vec(),
-            b"h3-32".to_vec(),
-            b"h3-31".to_vec(),
-            b"h3-30".to_vec(),
-            b"h3-29".to_vec(),
-        ];
-        tls_config.alpn_protocols = alpn;
-
-        let mut server_config: quinn::ServerConfig = quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config)?));
-        let mut transport_config = quinn::TransportConfig::default();
-        transport_config.keep_alive_interval(Some(Duration::from_secs(2)));
-        server_config.transport = Arc::new(transport_config);
-        Ok(server_config)
-    }
-
-    async fn handle_connection(
+    async fn handle_session_request(
         client_iterator: Arc<AtomicU64>,
         connection_req_sender: mpsc::Sender<ConnectionRequest>,
-        mut conn: Connection<H3QuinnConnection, Bytes>,
-    ) -> Result<Option<ClientConnectionResult>, h3::Error> {
-        match conn.accept().await {
-            Ok(Some((req, stream))) => {
-                let ext = req.extensions();
-                if ext.get::<Protocol>() != Some(&Protocol::WEB_TRANSPORT) {
-                    return Ok(None);
-                }
-                if *req.method() != Method::CONNECT {
-                    return Ok(None);
-                }
+        session_request: wtransport::endpoint::SessionRequest,
+    ) -> Result<Option<ClientConnectionResult>, wtransport::error::ConnectionError> {
+        // Extract the client's first connection request from the request URL.
+        //
+        // SECURITY NOTE: Connection requests are sent *unencrypted*, which matches how they are
+        // sent when using UDP sockets.
+        // TODO: Consider authenticating UDP client addresses in connect tokens, and sending WebTransport
+        // connection requests after sessions are established.
+        let packet = extract_client_connection_req(session_request.path())?;
 
-                // Extract the client's first connection request from the request URL.
-                //
-                // SECURITY NOTE: Connection requests are sent *unencrypted*, which matches how they are
-                // sent when using UDP sockets.
-                // TODO: Consider authenticating UDP client addresses in connect tokens, and sending WebTransport
-                // connection requests after sessions are established.
-                let packet = extract_client_connection_req(req.uri())?;
+        // Assign an identifier to this client.
+        let client_idx = client_iterator.fetch_add(1, Ordering::Relaxed);
 
-                // Assign an identifier to this client.
-                let client_idx = client_iterator.fetch_add(1, Ordering::Relaxed);
+        // Send connection request packet to netcode for evaluation.
+        let (result_sender, mut result_receiver) = mpsc::channel::<ConnectionRequestResult>(1usize);
+        let Ok(_) = connection_req_sender.try_send(ConnectionRequest {
+            client_idx,
+            packet,
+            result_sender,
+        }) else {
+            return Ok(None);
+        };
 
-                // Send connection request packet to netcode for evaluation.
-                let (result_sender, mut result_receiver) = mpsc::channel::<ConnectionRequestResult>(1usize);
-                let Ok(_) = connection_req_sender.try_send(ConnectionRequest {
-                    client_idx,
-                    packet,
-                    result_sender,
-                }) else {
-                    return Ok(None);
-                };
+        // Wait for the result of evaluating the connection request.
+        // - The connection must be validated before we accept the session to avoid resources being
+        //   consumed by fake clients.
+        let Some(ConnectionRequestResult::Success { client_id }) = result_receiver.recv().await else {
+            return Ok(None);
+        };
 
-                // Wait for the result of evaluating the connection request.
-                // - The connection must be validated before we accept the session to avoid resources being
-                //   consumed by fake clients.
-                let Some(ConnectionRequestResult::Success { client_id }) = result_receiver.recv().await else {
-                    return Ok(None);
-                };
-
-                // Finalize the connection.
-                match WebTransportSession::accept(req, stream, conn).await {
-                    Ok(session) => Ok(Some(ClientConnectionResult::Success {
-                        client_idx,
-                        client_id,
-                        session,
-                    })),
-                    Err(err) => {
-                        // We must return failure here because `ConnectionRequestResult::Success` means the server
-                        // is tracking this connection. We need the server to clean up its pending client entry.
-                        debug!("Failed to handle connection: {err:?}");
-                        Ok(Some(ClientConnectionResult::Failure { client_idx }))
-                    }
-                }
+        // Finalize the connection.
+        match session_request.accept().await {
+            Ok(session) => Ok(Some(ClientConnectionResult::Success {
+                client_idx,
+                client_id,
+                session,
+            })),
+            Err(err) => {
+                // We must return failure here because `ConnectionRequestResult::Success` means the server
+                // is tracking this connection. We need the server to clean up its pending client entry.
+                debug!("Failed to handle connection: {err:?}");
+                Ok(Some(ClientConnectionResult::Failure { client_idx }))
             }
-
-            // Indicates no more streams to be received.
-            Ok(None) => Ok(None),
-
-            Err(err) => Err(err),
         }
     }
 
     fn reading_thread(
         handle: &tokio::runtime::Handle,
-        read_datagram: Arc<WebTransportSession<H3QuinnConnection, bytes::Bytes>>,
+        read_datagram: wtransport::Connection,
         sender: crossbeam::channel::Sender<Bytes>,
         mut abort_signal: mpsc::UnboundedReceiver<()>,
     ) -> tokio::task::JoinHandle<()> {
@@ -437,8 +409,8 @@ impl WebTransportServer {
                     _ = abort_signal.recv() => {
                         break;
                     },
-                    Ok(result) = read_datagram.accept_datagram() => match result {
-                        Some((_, datagram_bytes)) => match sender.try_send(datagram_bytes) {
+                    Ok(datagram) = read_datagram.receive_datagram() => {
+                        match sender.try_send(datagram.payload()) {
                             Ok(_) => {}
                             Err(err) => {
                                 if let crossbeam::channel::TrySendError::Disconnected(_) = err {
@@ -447,8 +419,7 @@ impl WebTransportServer {
                                 trace!("The reading data could not be sent because the channel is currently full and sending \
                                     would require blocking.");
                             }
-                        },
-                        None => break,
+                        }
                     },
                     _ = &mut sleep => {
                         trace!("WT client socket reader timed out, disconnecting.");
@@ -566,14 +537,13 @@ impl TransportSocket for WebTransportServer {
             }
 
             // Set up datagram reading for the session.
-            let shared_session = Arc::new(session);
             let (sender, receiver) = crossbeam::channel::bounded::<Bytes>(256);
             let (abort_sender, abort_receiver) = mpsc::unbounded_channel::<()>();
-            let thread = Self::reading_thread(&self.handle, shared_session.clone(), sender, abort_receiver);
+            let thread = Self::reading_thread(&self.handle, session.clone(), sender, abort_receiver);
             self.clients.insert(
                 client_idx,
                 WebTransportServerClient {
-                    session: shared_session,
+                    session,
                     reader_receiver: receiver,
                     abort_sender,
                     reader_thread: thread,
@@ -705,12 +675,12 @@ impl TransportSocket for WebTransportServer {
         let data = Bytes::copy_from_slice(packet);
         if let Err(err) = client_data.session.send_datagram(data) {
             // See https://www.rfc-editor.org/rfc/rfc9114.html#errors
-            match err.get_error_level() {
-                ErrorLevel::ConnectionError => {
+            match err {
+                SendDatagramError::NotConnected => {
                     self.disconnect(addr);
                     return Err(std::io::Error::from(ErrorKind::ConnectionAborted).into());
                 }
-                ErrorLevel::StreamError => debug!("Stream error: {err}"),
+                SendDatagramError::UnsupportedByPeer | SendDatagramError::TooLarge => debug!("Stream error: {err}"),
             }
         }
 
@@ -718,23 +688,23 @@ impl TransportSocket for WebTransportServer {
     }
 }
 
-fn extract_client_connection_req(uri: &Uri) -> Result<Vec<u8>, h3::Error> {
-    let Some(query) = uri.query() else {
+fn extract_client_connection_req(path: &str) -> Result<Vec<u8>, wtransport::error::ConnectionError> {
+    let Some((_, query)) = path.split_once('?') else {
         log::trace!("invalid uri query, dropping connection request...");
-        return Err(h3::Error::from(h3::error::Code::H3_REQUEST_INCOMPLETE));
+        return Err(wtransport::error::ConnectionError::LocallyClosed);
     };
     let mut query_elements_iterator = form_urlencoded::parse(query.as_bytes());
     let Some((key, connection_req)) = query_elements_iterator.next() else {
         log::trace!("invalid uri query (missing req), dropping connection request...");
-        return Err(h3::Error::from(h3::error::Code::H3_REQUEST_INCOMPLETE));
+        return Err(wtransport::error::ConnectionError::LocallyClosed);
     };
     if key != WT_CONNECT_REQ {
         log::trace!("invalid uri query (bad key), dropping connection request...");
-        return Err(h3::Error::from(h3::error::Code::H3_REQUEST_INCOMPLETE));
+        return Err(wtransport::error::ConnectionError::LocallyClosed);
     }
     let Ok(connection_req) = serde_json::de::from_str::<Vec<u8>>(&connection_req) else {
         log::trace!("invalid uri query (bad req), dropping connection request...");
-        return Err(h3::Error::from(h3::error::Code::H3_REQUEST_INCOMPLETE));
+        return Err(wtransport::error::ConnectionError::LocallyClosed);
     };
 
     Ok(connection_req)

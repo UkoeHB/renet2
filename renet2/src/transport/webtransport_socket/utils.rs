@@ -32,7 +32,7 @@ impl TryFrom<Vec<u8>> for ServerCertHash {
 /// - `WebTransportClientConfig::server_dest`: Set the destination here. This tells the client where to connect.
 /// - `ServerSetupConfig::server_addresses`: Store the destination as a `SocketAddr` in the server addresses for the
 ///   WebTransport server. This is used to validate connect tokens.
-/// - `ClientAuthentication`: Use the destination in `ClientAuthentication::Unsecure::server_address` and in
+/// - `ClientAuthentication`: Use the destination in `ClientAuthentication::Unsecure::server_address` or in
 ///   `ConnectToken::generate()` for secure auth. The server address is used internally by `renet2` to coordinate
 ///   packet sending and receiving.
 ///

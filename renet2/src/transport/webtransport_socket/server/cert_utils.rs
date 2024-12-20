@@ -32,7 +32,7 @@ pub fn generate_self_signed_certificate_opinionated<T: Into<WebServerDestination
     subject_alt_names: impl IntoIterator<Item = T>,
 ) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), rcgen::Error> {
     let not_before = OffsetDateTime::now_utc().saturating_sub(1.hours()); //adjust for client system time variance
-    let not_after = not_before.saturating_add(2.weeks().saturating_sub(1.minutes())); //less than 2 weeks
+    let not_after = not_before.saturating_add(2.weeks());
     let mut distinguished_name = DistinguishedName::new();
     distinguished_name.push(DnType::CommonName, "renet2 self signed cert");
 

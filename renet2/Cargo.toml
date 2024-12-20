@@ -41,16 +41,15 @@ wt_server_transport = [
     "transport",
     "dep:crossbeam",
     "dep:anyhow",
+    "dep:wtransport",
+
     "dep:rustls",
     "dep:rustls-pki-types",
     "dep:rcgen",
     "dep:quinn",
-    "dep:h3-quinn",
-    "dep:h3-webtransport",
+
     "dep:tokio",
-    "dep:http",
     "dep:futures",
-    "dep:h3",
     "dep:time",
     #"dep:x509-cert",
     #"dep:spki",
@@ -94,20 +93,15 @@ serde_json = { version = "1.0", optional = true }
 
 # WebTransport server
 anyhow = { version = "1.0", optional = true }
+wtransport = { version = "0.5", optional = true, default-features = false, features = ["quinn", "self-signed"] }
+
 rustls = { version = "0.23.5", optional = true }  #locked to 0.23.5 until quinn updates
 rustls-pki-types = { version = "1.7", optional = true }  #locked to 1.7 until quinn updates
 rcgen = { version = "0.13", optional = true }
 quinn = { version = "0.11.6", optional = true, default-features = false, features = [
-    "runtime-tokio",
     "rustls-ring",
 ] }
-h3-quinn = { tag = "h3-v0.0.6", optional = true, git = "https://github.com/hyperium/h3" }
-h3-webtransport = { version = "0.1", tag = "h3-v0.0.6", optional = true, git = "https://github.com/hyperium/h3" }
 tokio = { version = "1.32", optional = true, features = ["full"] }
-http = { version = "1.0", optional = true }
-h3 = { tag = "h3-v0.0.6", optional = true, git = "https://github.com/hyperium/h3", features = [
-    "i-implement-a-third-party-backend-and-opt-into-breaking-changes"
-] }
 time = { version = "0.3", optional = true }
 #x509-cert = { version = "0.2", optional = true }
 #spki = { version = "0.7", optional = true, features = ["fingerprint"] }
