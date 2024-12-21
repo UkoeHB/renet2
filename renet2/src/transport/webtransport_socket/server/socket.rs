@@ -16,7 +16,7 @@ use std::sync::atomic::AtomicU64;
 use std::{
     collections::{BTreeMap, HashSet},
     io::ErrorKind,
-    net::{IpAddr, Ipv6Addr, SocketAddr},
+    net::SocketAddr,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -25,7 +25,9 @@ use std::{
     vec,
 };
 
-use crate::transport::{NetcodeTransportError, TransportSocket, WebServerDestination, WT_CONNECT_REQ};
+use crate::transport::{
+    client_idx_from_addr, client_idx_to_addr, NetcodeTransportError, TransportSocket, WebServerDestination, HTTP_CONNECT_REQ,
+};
 
 use crate::transport::ServerCertHash;
 
@@ -728,7 +730,7 @@ fn extract_client_connection_req(uri: &Uri) -> Result<Vec<u8>, h3::Error> {
         log::trace!("invalid uri query (missing req), dropping connection request...");
         return Err(h3::Error::from(h3::error::Code::H3_REQUEST_INCOMPLETE));
     };
-    if key != WT_CONNECT_REQ {
+    if key != HTTP_CONNECT_REQ {
         log::trace!("invalid uri query (bad key), dropping connection request...");
         return Err(h3::Error::from(h3::error::Code::H3_REQUEST_INCOMPLETE));
     }
@@ -738,53 +740,4 @@ fn extract_client_connection_req(uri: &Uri) -> Result<Vec<u8>, h3::Error> {
     };
 
     Ok(connection_req)
-}
-
-fn client_idx_to_addr(idx: u64) -> SocketAddr {
-    SocketAddr::new(
-        IpAddr::V6(Ipv6Addr::new(
-            idx as u16,
-            (idx >> 16) as u16,
-            (idx >> 32) as u16,
-            (idx >> 48) as u16,
-            0,
-            0,
-            0,
-            0,
-        )),
-        0,
-    )
-}
-
-fn client_idx_from_addr(addr: SocketAddr) -> u64 {
-    let SocketAddr::V6(addr_v6) = addr else {
-        panic!("V6 addresses are expected to represent client idxs")
-    };
-    let octets = addr_v6.ip().octets();
-
-    let mut idx = 0u64;
-    for i in (0..4).rev() {
-        idx <<= 16;
-        idx += ((octets[2 * i] as u64) << 8) + (octets[2 * i + 1] as u64);
-    }
-
-    idx
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn client_addr_conversion() {
-        let addr0 = client_idx_to_addr(0);
-        let addr1 = client_idx_to_addr(1);
-        let addr16 = client_idx_to_addr(16);
-        let addr257 = client_idx_to_addr(257);
-
-        assert_eq!(client_idx_from_addr(addr0), 0);
-        assert_eq!(client_idx_from_addr(addr1), 1);
-        assert_eq!(client_idx_from_addr(addr16), 16);
-        assert_eq!(client_idx_from_addr(addr257), 257);
-    }
 }

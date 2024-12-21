@@ -1,4 +1,4 @@
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
 
 /// SHA-256 hash of a DER-encoded certificate.
 ///
@@ -80,9 +80,9 @@ impl TryFrom<WebServerDestination> for url::Url {
     }
 }
 
-/// Key for `netcode` connection requests inserted as query pairs into `WebTransport` connection requests.
-#[cfg(any(feature = "wt_server_transport", feature = "wt_client_transport"))]
-pub(crate) const WT_CONNECT_REQ: &str = "creq";
+/// Key for `netcode` connection requests inserted as query pairs into HTTP connection requests.
+#[allow(unused)]
+pub(crate) const HTTP_CONNECT_REQ: &str = "creq";
 
 fn hash_url_to_socket_addr(url: url::Url) -> SocketAddr {
     let hash = hmac_sha256::Hash::hash(url.as_str().as_bytes());
@@ -101,4 +101,55 @@ fn wt_server_addr_to_url(addr: SocketAddr) -> Result<url::Url, ()> {
     url.set_ip_host(addr.ip())?;
     url.set_port(Some(addr.port()))?;
     Ok(url)
+}
+
+#[allow(unused)]
+pub(crate) fn client_idx_to_addr(idx: u64) -> SocketAddr {
+    SocketAddr::new(
+        IpAddr::V6(Ipv6Addr::new(
+            idx as u16,
+            (idx >> 16) as u16,
+            (idx >> 32) as u16,
+            (idx >> 48) as u16,
+            0,
+            0,
+            0,
+            0,
+        )),
+        0,
+    )
+}
+
+#[allow(unused)]
+pub(crate) fn client_idx_from_addr(addr: SocketAddr) -> u64 {
+    let SocketAddr::V6(addr_v6) = addr else {
+        panic!("V6 addresses are expected to represent client idxs")
+    };
+    let octets = addr_v6.ip().octets();
+
+    let mut idx = 0u64;
+    for i in (0..4).rev() {
+        idx <<= 16;
+        idx += ((octets[2 * i] as u64) << 8) + (octets[2 * i + 1] as u64);
+    }
+
+    idx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_addr_conversion() {
+        let addr0 = client_idx_to_addr(0);
+        let addr1 = client_idx_to_addr(1);
+        let addr16 = client_idx_to_addr(16);
+        let addr257 = client_idx_to_addr(257);
+
+        assert_eq!(client_idx_from_addr(addr0), 0);
+        assert_eq!(client_idx_from_addr(addr1), 1);
+        assert_eq!(client_idx_from_addr(addr16), 16);
+        assert_eq!(client_idx_from_addr(addr257), 257);
+    }
 }

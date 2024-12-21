@@ -7,6 +7,7 @@ mod memory_socket;
 mod native_socket;
 mod server;
 mod transport_socket;
+mod websocket_socket;
 mod webtransport_socket;
 
 pub use client::*;
@@ -17,6 +18,7 @@ pub use transport_socket::*;
 pub use memory_socket::*;
 #[cfg(all(feature = "native_transport", not(target_family = "wasm")))]
 pub use native_socket::*;
+pub use websocket_socket::*;
 pub use webtransport_socket::*;
 
 pub use renetcode2::{

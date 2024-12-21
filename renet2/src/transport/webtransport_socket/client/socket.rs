@@ -16,7 +16,7 @@ use wasm_bindgen::{prelude::Closure, JsValue};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{ReadableStreamDefaultReader, WritableStreamDefaultWriter};
 
-use crate::transport::{NetcodeTransportError, ServerCertHash, TransportSocket, WebServerDestination, WT_CONNECT_REQ};
+use crate::transport::{NetcodeTransportError, ServerCertHash, TransportSocket, WebServerDestination, HTTP_CONNECT_REQ};
 
 use super::bindings::{
     ReadableStreamDefaultReadResult, WebTransport, WebTransportCongestionControl, WebTransportError, WebTransportHash, WebTransportOptions,
@@ -172,7 +172,7 @@ impl WebTransportClient {
                 .try_into()
                 .expect("could not convert server destination to url");
             let connect_msg_ser = serde_json::to_string(&connection_req).expect("could not serialize connect msg");
-            url.query_pairs_mut().append_pair(WT_CONNECT_REQ, connect_msg_ser.as_str());
+            url.query_pairs_mut().append_pair(HTTP_CONNECT_REQ, connect_msg_ser.as_str());
 
             // Set up WebTransport.
             let web_transport = match Self::init_web_transport(url.as_str(), options).await {

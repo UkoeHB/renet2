@@ -15,7 +15,7 @@ rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 
 [features]
 # Default features
-default = ["native_transport"]
+default = ["native_transport", "ws_server_transport", "ws-rustls", "ws-native-tls"] #TODO: remove extras
 
 # Enable bevy integration
 bevy = ["dep:bevy_ecs", "dep:bevy_reflect"]
@@ -74,6 +74,25 @@ wt_client_transport = [
     "dep:serde_json"
 ]
 
+# Enable the WebSocket server transport
+ws_server_transport = [
+    "transport",
+    "dep:tungstenite",
+    "dep:tokio-tungstenite"
+]
+
+# Enable rustls acceptors for WebSocket server transports.
+ws-rustls = ["dep:tokio-rustls"]
+
+# Enable native TLS acceptors for WebSocket server transports.
+ws-native-tls = ["dep:tokio-native-tls"]
+
+# Enable the WebSocket client transport (WASM only)
+ws_client_transport = [
+
+]
+
+
 [dependencies]
 bevy_ecs = { version = "0.15", optional = true }
 bevy_reflect = { version = "0.15", optional = true }
@@ -122,6 +141,13 @@ wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }
 send_wrapper = { version = "0.6", optional = true, features = ["futures"] }
 getrandom = { version = "0.2", optional = true, features = ["js"] }
+
+# WebSocket server
+tungstenite = { version = "0.26.1", optional = true }
+tokio-tungstenite = { version = "0.26.1", optional = true }
+tokio-rustls = { version = "0.26.1", optional = true }
+tokio-native-tls = { version = "0.3.1", optional = true }
+
 
 [dependencies.web-sys]
 version = "0.3"
