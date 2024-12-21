@@ -2,6 +2,7 @@ use anyhow::Error;
 use bytes::Bytes;
 use log::{debug, error, trace};
 use quinn::crypto::rustls::QuicServerConfig;
+use quinn::IdleTimeout;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::{sync::mpsc, task::AbortHandle};
 use wtransport::error::SendDatagramError;
@@ -105,9 +106,9 @@ impl WebTransportServerConfig {
             .with_no_client_auth()
             .with_single_cert(vec![self.cert], self.key)?;
 
-        //tls_config.max_early_data_size = u32::MAX;
+        tls_config.max_early_data_size = u32::MAX;
         // We set the ALPN protocols to h3 as first, so that the browser will use the newest HTTP/3 draft and as fallback
-        // we use older versions of HTTP/3 draft
+        // we use older versions of the HTTP/3 draft.
         let alpn: Vec<Vec<u8>> = vec![
             b"h3".to_vec(),
             b"h3-32".to_vec(),
@@ -119,7 +120,9 @@ impl WebTransportServerConfig {
 
         let mut server_config: quinn::ServerConfig = quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config)?));
         let mut transport_config = quinn::TransportConfig::default();
-        transport_config.keep_alive_interval(Some(Duration::from_secs(2)));
+        transport_config
+            .keep_alive_interval(Some(Duration::from_secs(2)))
+            .max_idle_timeout(Some(IdleTimeout::try_from(Duration::from_secs(15))?));
         server_config.transport = Arc::new(transport_config);
 
         let wt_config = wtransport::ServerConfig::builder()
@@ -145,7 +148,7 @@ impl Clone for WebTransportServerConfig {
 struct WebTransportServerClient {
     /// Connection session.
     ///
-    /// When this is dropped, the internal `H3QuinnConnection` will send a close message to the client.
+    // TODO: When this is dropped, is a close message send to the client?
     session: wtransport::Connection,
     reader_receiver: crossbeam::channel::Receiver<Bytes>,
     abort_sender: mpsc::UnboundedSender<()>,
