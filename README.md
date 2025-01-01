@@ -15,7 +15,7 @@ Provides the following features:
     - ReliableUnordered: guarantee of message delivery but not order
     - Unreliable: no guarantee of message delivery or order
 - Packet fragmention and reassembly
-- Authentication and encryption, using [renetcode2](https://github.com/UkoeHB/renet2/tree/master/renetcode2)
+- Authentication and encryption, using [renetcode2](https://github.com/UkoeHB/renet2/tree/main/renetcode2)
     - The transport layer can be customizable. The default transport can be disabled and replaced with a custom one.
     - The underlying data transport/socket can be customized. Both unencrypted (e.g. UDP) and encrypted (e.g. WebTransport) data transports are supported.
 - Built-in UDP sockets, in-memory sockets, WebTransport sockets, and WebSocket sockets for flexible, cross-platform networking using the `netcode` protocol.
@@ -193,7 +193,7 @@ loop {
 
 ## Demos
 
-You can checkout the [echo example](https://github.com/UkoeHb/renet2/blob/master/renet2/examples/echo.rs) for a simple usage of the library. Usage:
+You can checkout the [echo examples](https://github.com/UkoeHB/renet2/tree/main/examples/) for a simple usage of the library. Usage:
 
 - Server: `cargo run --example echo -- server 5000`
 - Client: `cargo run --example echo -- client 127.0.0.1:5000 CoolNickName`
@@ -208,7 +208,7 @@ Simple bevy application to demonstrate how you could replicate entities and send
 
 [Bevy Demo.webm](https://user-images.githubusercontent.com/35241085/180664609-f8c969e0-d313-45c0-9c04-8a116896d0bd.webm)
 
-[Repository](https://github.com/UkoeHb/renet2/tree/master/demo_bevy)
+[Repository](https://github.com/UkoeHb/renet2/tree/main/demo_bevy)
 </details>
 
 <details><summary>Chat Demo</summary>
@@ -219,20 +219,20 @@ Simple chat application made with egui to demonstrate how you could handle error
 
 [Chat Demo.webm](https://user-images.githubusercontent.com/35241085/180664911-0baf7b35-c9d4-43ff-b793-5955060adebc.webm)
 
-[Repository](https://github.com/UkoeHb/renet2/tree/master/demo_chat)
+[Repository](https://github.com/UkoeHb/renet2/tree/main/demo_chat)
 </details>
 
 ## Plugins
 
-Checkout [bevy_renet2](https://github.com/UkoeHb/renet2/tree/master/bevy_renet2) if you want to use renet2 as a plugin with the [Bevy engine](https://bevyengine.org/).
+Checkout [bevy_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_renet2) if you want to use renet2 as a plugin with the [Bevy engine](https://bevyengine.org/).
 
-Checkout [bevy_replicon_renet2](https://github.com/UkoeHb/renet2/tree/master/bevy_replicon_renet2) if you want to use renet2 as a backend for [bevy_replicon](https://github.com/projectharmonia/bevy_replicon).
+Checkout [bevy_replicon_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_replicon_renet2) if you want to use renet2 as a backend for [bevy_replicon](https://github.com/projectharmonia/bevy_replicon).
 
-Checkout [renet2_steam](https://github.com/UkoeHb/renet2/tree/master/renet2_steam) if you want to use the steam transport layer instead of the default one.
+Checkout [renet2_steam](https://github.com/UkoeHb/renet2/tree/main/renet2_steam) if you want to use the steam transport layer instead of the default one.
 
 ## Visualizer
 
-Checkout [renet2_visualizer](https://github.com/UkoeHb/renet2/tree/master/renet2_visualizer) for an egui plugin to plot metrics data from renet clients and servers:
+Checkout [renet2_visualizer](https://github.com/UkoeHb/renet2/tree/main/renet2_visualizer) for an egui plugin to plot metrics data from renet clients and servers:
 
 https://user-images.githubusercontent.com/35241085/175834010-b1eafd77-7ea2-47dc-a915-a399099c7a99.mp4
 
