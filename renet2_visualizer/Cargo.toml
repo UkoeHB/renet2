@@ -1,6 +1,6 @@
 [package]
 name = "renet2_visualizer"
-version = "0.1.1"
+version = "0.1.2"
 keywords = ["gamedev", "networking"]
 description = "Egui metrics visualizer for the renet2 crate"
 repository = "https://github.com/UkoeHB/renet2"
@@ -16,6 +16,6 @@ rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
-renet2 = { path = "../renet2", version = "0.1.1" }
+renet2 = { path = "../renet2", version = "0.1.2" }
 egui = "0.29"
 bevy_ecs = { version = "0.15", optional = true }

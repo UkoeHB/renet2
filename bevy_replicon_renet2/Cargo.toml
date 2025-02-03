@@ -1,6 +1,6 @@
 [package]
 name = "bevy_replicon_renet2"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
   "Hennadii Chernyshchyk <genaloner@gmail.com>",
   "koe <ukoe@protonmail.com>",
@@ -23,13 +23,13 @@ rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 
 [dependencies]
 bevy_replicon = { version = "0.29", default-features = false }
-bevy_renet2 = { path = "../bevy_renet2", version = "0.1.1", default-features = false }
+bevy_renet2 = { path = "../bevy_renet2", version = "0.1.2", default-features = false }
 bevy = { version = "0.15", default-features = false }
 
 [dev-dependencies]
 serde = "1.0"
 clap = { version = "4.1", features = ["derive"] }
-bevy_renet2 = { path = "../bevy_renet2", version = "0.1.1", features = ["native_transport"] }
+bevy_renet2 = { path = "../bevy_renet2", version = "0.1.2", features = ["native_transport"] }
 bevy = { version = "0.15", default-features = false, features = [
   "bevy_state",
   "bevy_text",
@@ -58,6 +58,8 @@ wt_server_transport = ["netcode", "bevy_renet2/wt_server_transport"]
 wt_client_transport = ["netcode", "bevy_renet2/wt_client_transport"]
 ws_server_transport = ["netcode", "bevy_renet2/ws_server_transport"]
 ws_client_transport = ["netcode", "bevy_renet2/ws_client_transport"]
+ws-rustls = ["bevy_renet2/ws-rustls"]
+ws-native-tls = ["bevy_renet2/ws-native-tls"]
 
 [[test]]
 name = "transport"
