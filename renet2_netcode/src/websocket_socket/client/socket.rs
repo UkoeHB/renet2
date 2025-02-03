@@ -24,9 +24,7 @@ pub struct WebSocketClientConfig {
 }
 
 impl WebSocketClientConfig {
-    /// Extracts the server address from the server URL.
-    //TODO: consider splitting server address from URL so you can URL-proxy (although what's the point if you need to know
-    // the server addr?); maybe if the server also knows the URL-proxy then it can work
+    /// Extracts the server address from the server URL if it contains a `SocketAddr`.
     pub fn server_address(&self) -> Result<SocketAddr, anyhow::Error> {
         let host = self
             .server_url
@@ -61,9 +59,9 @@ pub struct WebSocketClient {
 impl WebSocketClient {
     /// Makes a new WebSocket client that will connect to a WebSocket server.
     ///
-    /// Can fail if a `SocketAddr` could not be extracted from the server's URL.
+    /// Can fail if the url scheme is not `ws` or `wss`.
     pub fn new(config: WebSocketClientConfig) -> Result<Self, anyhow::Error> {
-        let server_address = config.server_address()?;
+        let server_address = config.server_address().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
         let mut server_url = config.server_url.clone();
         let server_has_tls = match server_url.scheme() {
             "wss" => true,
@@ -96,13 +94,16 @@ impl WebSocketClient {
             let connect_msg_ser = urlencoding::encode_binary(&connection_req);
             server_url.set_query(Some(format!("{}={}", HTTP_CONNECT_REQ, &connect_msg_ser).as_str()));
 
-            let Ok(ws) = WebSocket::new(server_url.as_str()) else {
-                warn!(
-                    "failed initializing websocket client, unsupported url scheme for \"{}\"",
-                    server_url.as_str()
-                );
-                inner_closed.store(true, Ordering::Relaxed);
-                return;
+            let ws = match WebSocket::new(server_url.as_str()) {
+                Ok(ws) => ws,
+                Err(err) => {
+                    warn!(
+                        "failed initializing websocket client with server url \"{}\": {err:?}",
+                        server_url.as_str()
+                    );
+                    inner_closed.store(true, Ordering::Relaxed);
+                    return;
+                }
             };
             ws.set_binary_type(BinaryType::Arraybuffer);
 
@@ -219,6 +220,7 @@ impl WebSocketClient {
         &self.server_url
     }
 
+    /// Returns a dummy address if the server url doesn't contain a SocketAddr.
     pub fn server_address(&self) -> SocketAddr {
         self.server_address
     }

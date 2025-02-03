@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.1.2 - 02/03/25
+
+- Allow non-`SocketAddr` urls in `WebSocketClientConfig`.
+
 ## 0.1.1 - 01/15/25
 
 - Fix `webtransport_is_available_with_cert_hashes()` to detect if in a buggy Firefox version. See https://phabricator.services.mozilla.com/D231479

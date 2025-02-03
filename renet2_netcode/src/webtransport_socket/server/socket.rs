@@ -73,7 +73,7 @@ impl WebTransportServerConfig {
     ///
     /// The certificate produced will be valid for two weeks (minus one hour and one minute).
     ///
-    /// Use [`Self::new_selfsigned_with_proxies`] if you only want the certificate to bind to the `listen` address.
+    /// Use [`Self::new_selfsigned`] if you only want the certificate to bind to the `listen` address.
     pub fn new_selfsigned_with_proxies(
         listen: SocketAddr,
         proxies: Vec<WebServerDestination>,

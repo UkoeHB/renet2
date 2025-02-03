@@ -65,17 +65,17 @@ impl ChatApplication {
                 let socket_config = WebSocketClientConfig {
                     server_url: ws_server_url,
                 };
-                let server_addr = socket_config.server_address().unwrap();
+
+                let socket = WebSocketClient::new(socket_config).unwrap();
+                let client = RenetClient::new(connection_config, socket.is_reliable());
+
                 let client_auth = ClientAuthentication::Unsecure {
                     client_id: current_time.as_millis() as u64,
                     protocol_id: 0,
                     socket_id: 2, //WebSocket socket id is 2 in this example
-                    server_addr,
+                    server_addr: socket.server_address(),
                     user_data: None,
                 };
-
-                let socket = WebSocketClient::new(socket_config).unwrap();
-                let client = RenetClient::new(connection_config, socket.is_reliable());
                 let transport = NetcodeClientTransport::new(current_time, client_auth, socket).unwrap();
 
                 (client, transport)

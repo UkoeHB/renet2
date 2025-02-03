@@ -79,14 +79,14 @@ pub trait ClientSocket: Debug + Send + Sync + 'static {
     ///
     /// If the socket internally encrypts packets before sending them, then this should return `true`.
     /// In that case, `renetcode` will not pre-encrypt packets before [`Self::send`] is called.
-    /// 
+    ///
     /// Should match the encryption policy of the server socket you will connect to.
     fn is_encrypted(&self) -> bool;
     /// Gets the reliability of the socket.
     ///
     /// If this is true, then [`RenetClient`](renet2::RenetClient) will 'downgrade' all channels to
     /// [`SendType::Unreliable`](renet2::SendType::Unreliable) so there is not a redundant reliability layer.
-    /// 
+    ///
     /// Should match the reliability of the server socket you will connect to.
     fn is_reliable(&self) -> bool;
 
