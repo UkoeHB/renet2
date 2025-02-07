@@ -10,6 +10,7 @@ members = [
     "renet2",
     "renet2_netcode",
     "renet2_visualizer",
+    "renet2_setup",
     "renet2_steam",
     "renetcode2",
 ]

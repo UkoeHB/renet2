@@ -153,6 +153,8 @@ impl PendingClient {
 /// If the server is *not* connected with TLS, then connections will be encrypted using the
 /// built-in `netcode` encryption implemented in `renetcode2` that is used for UDP connections.
 /// This means TLS is likely not that useful for websocket connections.
+///
+/// See [`Self::url`] for details about how clients can connect to a websocket server.
 pub struct WebSocketServer {
     addr: SocketAddr,
     has_tls: bool,
@@ -225,9 +227,15 @@ impl WebSocketServer {
         })
     }
 
-    /// Gets the server URL.
+    /// Gets the server's local URL.
     ///
     /// The URL will have the format `{ws|wss}://[ip:port]/ws`.
+    ///
+    /// The local URL likely differs from the public URL of the server due to NAT. The client should
+    /// connect to the public URL, either by swapping the IP of this method's url for the public IP of your server
+    /// (and possibly the port if doing port translation), or by replacing it with a domain name. If using
+    /// a domain name then `ServerSocketConfig::server_addresses` and `ConnectToken` must be given the
+    /// dummy `SocketAddr` `0.0.0.0:0`.
     pub fn url(&self) -> url::Url {
         make_websocket_url(self.has_tls, self.addr).unwrap()
     }

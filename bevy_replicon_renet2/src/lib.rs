@@ -65,6 +65,8 @@ pub use bevy_renet2::netcode;
 
 #[cfg(feature = "client")]
 pub mod client;
+pub mod common;
+mod plugins;
 #[cfg(feature = "server")]
 pub mod server;
 
@@ -73,67 +75,5 @@ pub use client::*;
 #[cfg(feature = "server")]
 pub use server::*;
 
-use bevy::{app::PluginGroupBuilder, prelude::*};
-use bevy_renet2::prelude::{ChannelConfig, SendType};
-use bevy_replicon::prelude::{ChannelKind, RepliconChannel, RepliconChannels};
-
-pub struct RepliconRenetPlugins;
-
-impl PluginGroup for RepliconRenetPlugins {
-    fn build(self) -> PluginGroupBuilder {
-        let mut builder = PluginGroupBuilder::start::<Self>();
-
-        #[cfg(feature = "client")]
-        {
-            builder = builder.add(RepliconRenetClientPlugin);
-        }
-
-        #[cfg(feature = "server")]
-        {
-            builder = builder.add(RepliconRenetServerPlugin);
-        }
-
-        builder
-    }
-}
-
-/// External trait for [`RepliconChannels`] to provide convenient conversion into renet channel configs.
-pub trait RenetChannelsExt {
-    /// Returns server channel configs that can be used to create [`ConnectionConfig`](renet2::ConnectionConfig).
-    fn get_server_configs(&self) -> Vec<ChannelConfig>;
-
-    /// Same as [`RenetChannelsExt::get_server_configs`], but for clients.
-    fn get_client_configs(&self) -> Vec<ChannelConfig>;
-}
-
-impl RenetChannelsExt for RepliconChannels {
-    fn get_server_configs(&self) -> Vec<ChannelConfig> {
-        create_configs(self.server_channels(), self.default_max_bytes)
-    }
-
-    fn get_client_configs(&self) -> Vec<ChannelConfig> {
-        create_configs(self.client_channels(), self.default_max_bytes)
-    }
-}
-
-/// Converts replicon channels into renet channel configs.
-fn create_configs(channels: &[RepliconChannel], default_max_bytes: usize) -> Vec<ChannelConfig> {
-    let mut channel_configs = Vec::with_capacity(channels.len());
-    for (index, channel) in channels.iter().enumerate() {
-        let send_type = match channel.kind {
-            ChannelKind::Unreliable => SendType::Unreliable,
-            ChannelKind::Unordered => SendType::ReliableUnordered {
-                resend_time: channel.resend_time,
-            },
-            ChannelKind::Ordered => SendType::ReliableOrdered {
-                resend_time: channel.resend_time,
-            },
-        };
-        channel_configs.push(ChannelConfig {
-            channel_id: index as u8,
-            max_memory_usage_bytes: channel.max_bytes.unwrap_or(default_max_bytes),
-            send_type,
-        });
-    }
-    channel_configs
-}
+pub use common::*;
+pub use plugins::*;

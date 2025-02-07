@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.2.0 - 02/06/25
+
+- Add `renet2_setup` crate.
+- Remove panics from `WebTransportServerConfig` API.
+
 ## 0.1.2 - 02/03/25
 
 - Allow non-`SocketAddr` urls in `WebSocketClientConfig`.

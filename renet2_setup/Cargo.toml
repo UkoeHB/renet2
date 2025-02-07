@@ -1,0 +1,77 @@
+[package]
+name = "renet2_setup"
+version = "0.1.2"
+authors = [
+  "koe <ukoe@protonmail.com>",
+]
+edition = "2021"
+description = "Setup utilities for renet2"
+keywords = [
+  "multiplayer",
+  "netcode",
+  "replication",
+  "server-authoritative",
+]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/UkoeHB/renet2"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
+
+[dependencies]
+log = { version = "0.4" }
+serde = { version = "1.0" }
+serde_with = { version = "1.0" }
+url = { version = "2.4" }
+
+renet2 = {path = "../renet2", version = "0.1.2", default-features = false}
+renet2_netcode = {path = "../renet2_netcode", version = "0.1.2", optional = true, default-features = false, features = ["serde"]}
+
+bevy_ecs = { version = "0.15", optional = true }
+enfync = { version = "0.1", default-features = false, optional = true }
+rustls = { version = "0.23", optional = true }
+rustls-pki-types = { version = "1.7", optional = true }
+wasm-timer = { version = "0.2", optional = true }
+
+# This infects getrandom with the 'js' feature in wasm to avoid compile errors.
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[features]
+default = ["netcode", "client", "server"]
+
+# Enables client setup.
+client = ["dep:wasm-timer"]
+# Enables server setup.
+server = ["dep:wasm-timer"]
+# Enables all features for clients.
+client_full = [
+  "memory_transport",
+  "native_transport",
+  "wt_client_transport",
+  "ws_client_transport"
+]
+# Enables all features for servers.
+server_full = [
+  "memory_transport",
+  "native_transport",
+  "wt_server_transport",
+  "ws_server_transport",
+]
+
+# Enables bevy integration
+bevy = ["dep:bevy_ecs", "renet2/bevy", "renet2_netcode/bevy"]
+
+# Re-exports of renet2_netcode features
+netcode = ["dep:renet2_netcode"]
+native_transport = ["netcode", "renet2_netcode/native_transport"]
+memory_transport = ["netcode", "renet2_netcode/memory_transport"]
+wt_server_transport = ["netcode", "renet2_netcode/wt_server_transport", "dep:enfync", "enfync/builtin"]
+wt_client_transport = ["netcode", "renet2_netcode/wt_client_transport"]
+# Includes `ws_certs`.
+ws_server_transport = ["netcode", "renet2_netcode/ws_server_transport", "dep:enfync", "enfync/builtin", "ws_certs"]
+ws_client_transport = ["netcode", "renet2_netcode/ws_client_transport"]
+
+# Enables extracting websocket certs from file using rustls. See GameServerSetupConfig.
+ws_certs = ["renet2_netcode/ws-rustls", "dep:rustls", "dep:rustls-pki-types", "rustls/ring"]

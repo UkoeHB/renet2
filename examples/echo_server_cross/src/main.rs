@@ -33,7 +33,7 @@ fn main() {
 
     // WebTransport socket
     let (wt_socket, cert_hash) = {
-        let (config, cert_hash) = WebTransportServerConfig::new_selfsigned(wildcard_addr, max_clients);
+        let (config, cert_hash) = WebTransportServerConfig::new_selfsigned(wildcard_addr, max_clients).unwrap();
         (WebTransportServer::new(config, runtime.handle().clone()).unwrap(), cert_hash)
     };
 

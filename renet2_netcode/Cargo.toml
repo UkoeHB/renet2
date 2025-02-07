@@ -59,15 +59,18 @@ wt_client_transport = [
     "dep:futures",
     "dep:js-sys",
     "dep:send_wrapper",
-    "dep:getrandom",
     "dep:web-sys",
     "dep:urlencoding",
 ]
 
 # Enable the WebSocket server transport
 ws_server_transport = [
+    "dep:anyhow",
+    "dep:crossbeam",
     "dep:tungstenite",
+    "dep:tokio",
     "dep:tokio-tungstenite",
+    "dep:futures",
     "dep:http",
     "dep:urlencoding",
 ]
@@ -135,7 +138,6 @@ wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 js-sys = { version = "0.3", optional = true }
 send_wrapper = { version = "0.6", optional = true, features = ["futures"] }
-getrandom = { version = "0.2", optional = true, features = ["js"] }
 
 # WebSocket server
 tungstenite = { version = "0.26.1", optional = true }

@@ -62,7 +62,7 @@ impl WebTransportServerConfig {
     /// The certificate produced will be valid for two weeks (minus one hour and one minute).
     ///
     /// Use [`Self::new_selfsigned_with_proxies`] if you want the certificate to bind to a URL (e.g. domain name).
-    pub fn new_selfsigned(listen: SocketAddr, max_clients: usize) -> (Self, ServerCertHash) {
+    pub fn new_selfsigned(listen: SocketAddr, max_clients: usize) -> Result<(Self, ServerCertHash), Error> {
         Self::new_selfsigned_with_proxies(listen, vec![listen.into()], max_clients)
     }
 
@@ -78,8 +78,8 @@ impl WebTransportServerConfig {
         listen: SocketAddr,
         proxies: Vec<WebServerDestination>,
         max_clients: usize,
-    ) -> (Self, ServerCertHash) {
-        let (cert, key) = generate_self_signed_certificate_opinionated(proxies).unwrap();
+    ) -> Result<(Self, ServerCertHash), Error> {
+        let (cert, key) = generate_self_signed_certificate_opinionated(proxies)?;
         let hash = get_server_cert_hash(&cert);
         let config = WebTransportServerConfig {
             cert,
@@ -88,7 +88,7 @@ impl WebTransportServerConfig {
             max_clients,
         };
 
-        (config, hash)
+        Ok((config, hash))
     }
 
     /// Converts self into a [`wtransport::ServerConfig`].
