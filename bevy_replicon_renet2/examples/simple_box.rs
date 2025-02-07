@@ -1,5 +1,7 @@
 //! A simple demo to showcase how player could send inputs to move the square and server replicates position back.
 //! Also demonstrates the single-player and how sever also could be a player.
+//!
+//! Use: cargo run --example simple_box -- single-player   (or client/server)
 
 use std::{
     error::Error,
@@ -47,10 +49,11 @@ impl Plugin for SimpleBoxPlugin {
                 Update,
                 (
                     Self::apply_movement.run_if(server_or_singleplayer), // Runs only on the server or a single player.
-                    Self::handle_connections.run_if(server_running),     // Runs only on the server.
                     (Self::draw_boxes, Self::read_input),
                 ),
-            );
+            )
+            .add_observer(Self::handle_client_connected)
+            .add_observer(Self::handle_client_disconnected);
     }
 }
 
@@ -132,22 +135,20 @@ impl SimpleBoxPlugin {
     }
 
     /// Logs server events and spawns a new player whenever a client connects.
-    fn handle_connections(mut commands: Commands, mut server_events: EventReader<ServerEvent>) {
-        for event in server_events.read() {
-            match event {
-                ServerEvent::ClientConnected { client_id } => {
-                    info!("{client_id:?} connected");
-                    // Generate pseudo random color from client id.
-                    let r = ((client_id.get() % 23) as f32) / 23.0;
-                    let g = ((client_id.get() % 27) as f32) / 27.0;
-                    let b = ((client_id.get() % 39) as f32) / 39.0;
-                    commands.spawn(PlayerBundle::new(*client_id, Vec2::ZERO, Color::srgb(r, g, b)));
-                }
-                ServerEvent::ClientDisconnected { client_id, reason } => {
-                    info!("{client_id:?} disconnected: {reason}");
-                }
-            }
-        }
+    fn handle_client_connected(event: Trigger<ClientConnected>, mut commands: Commands) {
+        let ClientConnected { client_id } = event.event();
+        info!("{client_id:?} connected");
+        // Generate pseudo random color from client id.
+        let r = ((client_id.get() % 23) as f32) / 23.0;
+        let g = ((client_id.get() % 27) as f32) / 27.0;
+        let b = ((client_id.get() % 39) as f32) / 39.0;
+        commands.spawn(PlayerBundle::new(*client_id, Vec2::ZERO, Color::srgb(r, g, b)));
+    }
+
+    /// Logs server events and spawns a new player whenever a client connects.
+    fn handle_client_disconnected(event: Trigger<ClientDisconnected>) {
+        let ClientDisconnected { client_id, reason } = event.event();
+        info!("{client_id:?} disconnected: {reason}");
     }
 
     fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &PlayerColor)>) {

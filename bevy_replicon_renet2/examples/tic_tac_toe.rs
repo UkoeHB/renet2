@@ -61,7 +61,6 @@ impl Plugin for TicTacToePlugin {
                 (
                     Self::show_connecting_text.run_if(resource_added::<RenetClient>),
                     Self::show_waiting_player_text.run_if(resource_added::<RenetServer>),
-                    Self::handle_connections.run_if(server_running),
                     Self::start_game.run_if(client_connected).run_if(any_component_added::<Player>), // Wait until client replicates players before starting the game.
                     (
                         Self::handle_interactions.run_if(local_player_turn),
@@ -72,7 +71,9 @@ impl Plugin for TicTacToePlugin {
                     )
                         .run_if(in_state(GameState::InGame)),
                 ),
-            );
+            )
+            .add_observer(Self::handle_connection)
+            .add_observer(Self::handle_disconnect);
     }
 }
 
@@ -305,27 +306,24 @@ impl TicTacToePlugin {
         *writer.get_text(text_entity, TEXT_SECTION).unwrap() = "Waiting player".into();
     }
 
-    /// Waits for client to connect to start the game or disconnect to finish it.
+    /// Waits for client to connect to start the game.
     ///
-    /// Only for server.
-    fn handle_connections(
+    /// Only used by server.
+    fn handle_connection(
+        event: Trigger<ClientConnected>,
         mut commands: Commands,
-        mut server_events: EventReader<ServerEvent>,
         mut game_state: ResMut<NextState<GameState>>,
         players: Query<&Symbol, With<Player>>,
     ) {
-        for event in server_events.read() {
-            match event {
-                ServerEvent::ClientConnected { client_id } => {
-                    let server_symbol = players.single();
-                    commands.spawn(PlayerBundle::new(*client_id, server_symbol.next()));
-                    game_state.set(GameState::InGame);
-                }
-                ServerEvent::ClientDisconnected { .. } => {
-                    game_state.set(GameState::Disconnected);
-                }
-            }
-        }
+        let ClientConnected { client_id } = event.event();
+        let server_symbol = players.single();
+        commands.spawn(PlayerBundle::new(*client_id, server_symbol.next()));
+        game_state.set(GameState::InGame);
+    }
+
+    /// Only used by server.
+    fn handle_disconnect(_event: Trigger<ClientDisconnected>, mut game_state: ResMut<NextState<GameState>>) {
+        game_state.set(GameState::Disconnected);
     }
 
     fn start_game(mut game_state: ResMut<NextState<GameState>>) {

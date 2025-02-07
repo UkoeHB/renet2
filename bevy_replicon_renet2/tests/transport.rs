@@ -4,12 +4,10 @@ use std::{
 };
 
 use bevy::prelude::*;
-use bevy_renet2::renet2::{
-    transport::{
-        ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
-    },
-    ConnectionConfig, RenetClient, RenetServer,
+use bevy_renet2::netcode::{
+    ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
 };
+use bevy_renet2::prelude::{ConnectionConfig, RenetClient, RenetServer};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{RenetChannelsExt, RepliconRenetPlugins};
 use serde::{Deserialize, Serialize};
@@ -44,20 +42,20 @@ fn connect_disconnect() {
 
     setup(&mut server_app, &mut client_app);
 
-    let mut renet_client = client_app.world.resource_mut::<RenetClient>();
+    let mut renet_client = client_app.world_mut().resource_mut::<RenetClient>();
     assert!(renet_client.is_connected());
     renet_client.disconnect();
 
     client_app.update();
     server_app.update();
 
-    let renet_server = server_app.world.resource::<RenetServer>();
+    let renet_server = server_app.world().resource::<RenetServer>();
     assert_eq!(renet_server.connected_clients(), 0);
 
-    let connected_clients = server_app.world.resource::<ConnectedClients>();
+    let connected_clients = server_app.world().resource::<ConnectedClients>();
     assert_eq!(connected_clients.len(), 0);
 
-    let replicon_client = client_app.world.resource_mut::<RepliconClient>();
+    let replicon_client = client_app.world_mut().resource_mut::<RepliconClient>();
     assert!(replicon_client.is_disconnected());
 }
 
@@ -78,12 +76,12 @@ fn replication() {
 
     setup(&mut server_app, &mut client_app);
 
-    server_app.world.spawn(Replicated);
+    server_app.world_mut().spawn(Replicated);
 
     server_app.update();
     client_app.update();
 
-    assert_eq!(client_app.world.entities().len(), 1);
+    client_app.world_mut().query::<&Replicated>().single(client_app.world());
 }
 
 #[test]
@@ -99,12 +97,13 @@ fn server_event() {
             }),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<DummyEvent>(ChannelKind::Ordered);
+        .add_server_event::<DummyEvent>(ChannelKind::Ordered)
+        .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
-    server_app.world.send_event(ToClients {
+    server_app.world_mut().send_event(ToClients {
         mode: SendMode::Broadcast,
         event: DummyEvent,
     });
@@ -112,7 +111,7 @@ fn server_event() {
     server_app.update();
     client_app.update();
 
-    let dummy_events = client_app.world.resource::<Events<DummyEvent>>();
+    let dummy_events = client_app.world().resource::<Events<DummyEvent>>();
     assert_eq!(dummy_events.len(), 1);
 }
 
@@ -129,17 +128,18 @@ fn client_event() {
             }),
             RepliconRenetPlugins,
         ))
-        .add_client_event::<DummyEvent>(ChannelKind::Ordered);
+        .add_client_event::<DummyEvent>(ChannelKind::Ordered)
+        .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
-    client_app.world.send_event(DummyEvent);
+    client_app.world_mut().send_event(DummyEvent);
 
     client_app.update();
     server_app.update();
 
-    let client_events = server_app.world.resource::<Events<FromClient<DummyEvent>>>();
+    let client_events = server_app.world().resource::<Events<FromClient<DummyEvent>>>();
     assert_eq!(client_events.len(), 1);
 }
 
@@ -151,32 +151,27 @@ fn setup(server_app: &mut App, client_app: &mut App) {
 }
 
 fn setup_client(app: &mut App, client_id: u64, port: u16) {
-    let channels = app.world.resource::<RepliconChannels>();
+    let channels = app.world().resource::<RepliconChannels>();
 
     let server_channels_config = channels.get_server_configs();
     let client_channels_config = channels.get_client_configs();
 
-    let client = RenetClient::new(ConnectionConfig {
-        server_channels_config,
-        client_channels_config,
-        ..Default::default()
-    });
+    let client = RenetClient::new(
+        ConnectionConfig::from_channels(server_channels_config, client_channels_config),
+        false,
+    );
     let transport = create_client_transport(client_id, port);
 
     app.insert_resource(client).insert_resource(transport);
 }
 
 fn setup_server(app: &mut App, max_clients: usize) -> u16 {
-    let channels = app.world.resource::<RepliconChannels>();
+    let channels = app.world().resource::<RepliconChannels>();
 
     let server_channels_config = channels.get_server_configs();
     let client_channels_config = channels.get_client_configs();
 
-    let server = RenetServer::new(ConnectionConfig {
-        server_channels_config,
-        client_channels_config,
-        ..Default::default()
-    });
+    let server = RenetServer::new(ConnectionConfig::from_channels(server_channels_config, client_channels_config));
     let transport = create_server_transport(max_clients);
     let port = transport.addresses().first().unwrap().port();
 
@@ -223,7 +218,7 @@ fn wait_for_connection(server_app: &mut App, client_app: &mut App) {
     loop {
         client_app.update();
         server_app.update();
-        if client_app.world.resource::<RenetClient>().is_connected() {
+        if client_app.world().resource::<RenetClient>().is_connected() {
             break;
         }
     }

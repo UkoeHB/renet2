@@ -4,6 +4,7 @@
 
 - Add `renet2_setup` crate.
 - Remove panics from `WebTransportServerConfig` API.
+- Update `bevy_replicon` to v0.30.
 
 ## 0.1.2 - 02/03/25
 
