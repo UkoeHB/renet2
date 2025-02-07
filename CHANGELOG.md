@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.3.0 - 02/07/25
+
+- Replace `renet2_setup` crate's `ws_certs` feature with `ws-native-tls` and `ws-rustls` features.
+
 ## 0.2.0 - 02/06/25
 
 - Add `renet2_setup` crate.

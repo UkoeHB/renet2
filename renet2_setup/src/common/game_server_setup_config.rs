@@ -66,12 +66,46 @@ impl GameServerSetupConfig {
         }
     }
 
-    #[cfg(feature = "ws_certs")]
+    #[cfg(feature = "ws_server_transport")]
     pub fn get_ws_acceptor(&self) -> Result<renet2_netcode::WebSocketAcceptor, String> {
-        match Self::get_rustls_server_config(&self.wss_certs)? {
-            Some(config) => Ok(renet2_netcode::WebSocketAcceptor::Rustls(config.into())),
-            None => Ok(renet2_netcode::WebSocketAcceptor::Plain),
+        let Some((cert_chain, privkey)) = &self.wss_certs else {
+            return Ok(renet2_netcode::WebSocketAcceptor::Plain);
+        };
+
+        #[cfg(feature = "ws-native-tls")]
+        {
+            let config = Self::get_native_tls_acceptor(cert_chain, privkey)?;
+            return Ok(renet2_netcode::WebSocketAcceptor::NativeTls(config.into()));
         }
+
+        #[cfg(feature = "ws-rustls")]
+        {
+            let config = Self::get_rustls_server_config(cert_chain, privkey)?;
+            return Ok(renet2_netcode::WebSocketAcceptor::Rustls(config.into()));
+        }
+
+        #[cfg(not(any(feature = "ws-native-tls", feature = "ws-rustls")))]
+        {
+            Err(format!("failed getting websocket acceptor for certs {cert_chain:?} and {privkey:?}; missing feature ws-native-tls or \
+                ws-rustls"))
+        }
+    }
+
+    /// Format: (cert chain, private key).
+    /// Files must be PEM encoded. The certs must be x509 and the privkey must be PKCS #8.
+    #[cfg(feature = "ws-native-tls")]
+    pub fn get_native_tls_acceptor(
+        cert_chain: &PathBuf,
+        privkey: &PathBuf,
+    ) -> Result<tokio_native_tls::native_tls::TlsAcceptor, String> {
+        let certs = std::fs::read(cert_chain)
+            .map_err(|err| format!("failed reading cert chain at {cert_chain:?} for native tls acceptor: {err:?}"))?;
+        let privkey = std::fs::read(privkey)
+            .map_err(|err| format!("failed reading privkey at {privkey:?} for native tls acceptor: {err:?}"))?;
+        let identity = tokio_native_tls::native_tls::Identity::from_pkcs8(&certs, &privkey)
+            .map_err(|err| format!("failed constructing native tls Identity: {err:?}"))?;
+        tokio_native_tls::native_tls::TlsAcceptor::new(identity)
+            .map_err(|err| format!("failed constructing native tls TlsAcceptor: {err:?}"))
     }
 
     /// Format: (cert chain, private key).
@@ -79,13 +113,12 @@ impl GameServerSetupConfig {
     ///
     /// If there is no `rustls::crypto::CryptoProvider` installed, then the `ring` default provider will be
     /// auto-installed.
-    #[cfg(feature = "ws_certs")]
+    #[cfg(feature = "ws-rustls")]
     pub fn get_rustls_server_config(
-        wss_certs: &Option<(PathBuf, PathBuf)>,
-    ) -> Result<Option<std::sync::Arc<rustls::ServerConfig>>, String> {
+        cert_chain: &PathBuf,
+        privkey: &PathBuf,
+    ) -> Result<std::sync::Arc<rustls::ServerConfig>, String> {
         use rustls_pki_types::pem::PemObject;
-
-        let Some((cert_chain, privkey)) = wss_certs else { return Ok(None) };
 
         let mut file_iter = rustls_pki_types::CertificateDer::pem_file_iter(cert_chain)
             .map_err(|err| format!("failed reading {cert_chain:?} for websocket certs: {err:?}"))?;
@@ -104,7 +137,7 @@ impl GameServerSetupConfig {
             .with_no_client_auth()
             .with_single_cert(certs, privkey)
             .map_err(|err| format!("failed building rustls serverconfig with websocket certs: {err:?}"))?;
-        Ok(Some(std::sync::Arc::new(config)))
+        Ok(std::sync::Arc::new(config))
     }
 }
 

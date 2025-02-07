@@ -32,27 +32,28 @@ bevy_ecs = { version = "0.15", optional = true }
 enfync = { version = "0.1", default-features = false, optional = true }
 rustls = { version = "0.23", optional = true }
 rustls-pki-types = { version = "1.7", optional = true }
+tokio-native-tls = { version = "0.3.1", optional = true }
 wasm-timer = { version = "0.2", optional = true }
 
-# This infects getrandom with the 'js' feature in wasm to avoid compile errors.
+# Infects getrandom with the 'js' feature to avoid compile errors in wasm.
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
-default = ["netcode", "client", "server"]
+default = ["client", "server"]
 
 # Enables client setup.
-client = ["dep:wasm-timer"]
+client = ["netcode", "dep:wasm-timer"]
 # Enables server setup.
-server = ["dep:wasm-timer"]
-# Enables all features for clients.
+server = ["netcode", "dep:wasm-timer"]
+# Enables all transports for clients.
 client_full = [
   "memory_transport",
   "native_transport",
   "wt_client_transport",
   "ws_client_transport"
 ]
-# Enables all features for servers.
+# Enables all transports for servers.
 server_full = [
   "memory_transport",
   "native_transport",
@@ -69,9 +70,11 @@ native_transport = ["netcode", "renet2_netcode/native_transport"]
 memory_transport = ["netcode", "renet2_netcode/memory_transport"]
 wt_server_transport = ["netcode", "renet2_netcode/wt_server_transport", "dep:enfync", "enfync/builtin"]
 wt_client_transport = ["netcode", "renet2_netcode/wt_client_transport"]
-# Includes `ws_certs`.
-ws_server_transport = ["netcode", "renet2_netcode/ws_server_transport", "dep:enfync", "enfync/builtin", "ws_certs"]
+ws_server_transport = ["netcode", "renet2_netcode/ws_server_transport", "dep:enfync", "enfync/builtin"]
 ws_client_transport = ["netcode", "renet2_netcode/ws_client_transport"]
 
+# Enables extracting websocket certs from file using native-tls. See GameServerSetupConfig.
+ws-native-tls = ["renet2_netcode/ws-native-tls", "dep:tokio-native-tls"]
+
 # Enables extracting websocket certs from file using rustls. See GameServerSetupConfig.
-ws_certs = ["renet2_netcode/ws-rustls", "dep:rustls", "dep:rustls-pki-types", "rustls/ring"]
+ws-rustls = ["renet2_netcode/ws-rustls", "dep:rustls", "dep:rustls-pki-types", "rustls/ring"]

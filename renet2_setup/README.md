@@ -27,13 +27,13 @@ Self-signed certificates are not supported everywhere. We assume clients will fa
 
 ### WebSocket TLS
 
-Websocket TLS requires a domain name in `GameServerSetupConfig` and the locations of PEM-encoded cert files (e.g. generated with Let's Encrypt). This crate uses `rustls` for TLS instead of `native-tls` so you don't need to install OpenSSL on every machine you deploy to.
+Websocket TLS requires a domain name in `GameServerSetupConfig` and the locations of PEM-encoded cert files (e.g. generated with Let's Encrypt). You must specify the `ws-native-tls` or `ws-rustls` feature in addition to `ws_server_transport` in order to use websocket certs. Note that `ws-native-tls` requires OpenSSL, which may need to be installed separately on your server host.
 
-If no `rustls::crypto::CryptoProvider` is installed, then `rustls::crypto::ring::default_provider().install_default()` will be called when setting up a websocket server.
+If using `ws-rustls` and no `rustls::crypto::CryptoProvider` is installed, then `rustls::crypto::ring::default_provider().install_default()` will be called when setting up a websocket server.
 
 ### `tokio`
 
-A default `tokio` runtime is set up if a server needs a webtransport or websocket socket.
+A default `tokio` runtime is set up if a server needs webtransport or websockets.
 
 
 ## Client workflow
