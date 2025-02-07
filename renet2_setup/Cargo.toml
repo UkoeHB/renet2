@@ -1,6 +1,6 @@
 [package]
 name = "renet2_setup"
-version = "0.1.2"
+version = "0.2.0"
 authors = [
   "koe <ukoe@protonmail.com>",
 ]
@@ -25,8 +25,8 @@ serde = { version = "1.0" }
 serde_with = { version = "1.0" }
 url = { version = "2.4" }
 
-renet2 = {path = "../renet2", version = "0.1.2", default-features = false}
-renet2_netcode = {path = "../renet2_netcode", version = "0.1.2", optional = true, default-features = false, features = ["serde"]}
+renet2 = {path = "../renet2", version = "0.2.0", default-features = false}
+renet2_netcode = {path = "../renet2_netcode", version = "0.2.0", optional = true, default-features = false, features = ["serde"]}
 
 bevy_ecs = { version = "0.15", optional = true }
 enfync = { version = "0.1", default-features = false, optional = true }
