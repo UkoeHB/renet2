@@ -1,4 +1,8 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![allow(rustdoc::redundant_explicit_links)]
+#![doc = include_str!("../README.md")]
+#[allow(unused_imports)]
+use crate as renet2_setup;
 
 #[cfg(feature = "client")]
 pub mod client;

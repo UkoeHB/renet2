@@ -17,6 +17,8 @@ pub enum ConnectionType {
 
 impl ConnectionType {
     /// Infers the connection type from the environment.
+    ///
+    /// If in WASM and the `wt_client_transport` feature is not enabled, always falls back to [`Self::WasmWs`].
     pub fn inferred() -> Self {
         #[cfg(not(target_family = "wasm"))]
         {

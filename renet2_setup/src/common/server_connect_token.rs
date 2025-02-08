@@ -19,12 +19,14 @@ pub fn connect_token_from_bytes(connect_token_bytes: &Vec<u8>) -> Result<Connect
 //-------------------------------------------------------------------------------------------------------------------
 
 /// A token that a client can use to connect to a renet2 server.
+///
+/// Produced by [`ConnectMetas::new_connect_token`] and consumed by `ClientConnectPack::new`.
 //todo: how to serialize the connect token more directly to reduce allocations?
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerConnectToken {
     Native {
-        /// A renet2 `ConnectToken`.
+        /// A renet2 [`ConnectToken`].
         #[serde_as(as = "Bytes")]
         token: Vec<u8>,
     },

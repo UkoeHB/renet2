@@ -3,5 +3,6 @@ Cargo.lock
 /.idea
 .vscode
 .rustc_info.json
+.notes
 wasm32-unknown-unknown
 renet2/debug
