@@ -1,7 +1,5 @@
 use bevy::{app::PluginGroupBuilder, prelude::*};
 
-use crate::{RepliconRenetClientPlugin, RepliconRenetServerPlugin};
-
 pub struct RepliconRenetPlugins;
 
 impl PluginGroup for RepliconRenetPlugins {
@@ -10,12 +8,12 @@ impl PluginGroup for RepliconRenetPlugins {
 
         #[cfg(feature = "client")]
         {
-            builder = builder.add(RepliconRenetClientPlugin);
+            builder = builder.add(crate::RepliconRenetClientPlugin);
         }
 
         #[cfg(feature = "server")]
         {
-            builder = builder.add(RepliconRenetServerPlugin);
+            builder = builder.add(crate::RepliconRenetServerPlugin);
         }
 
         builder
