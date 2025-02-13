@@ -63,7 +63,7 @@ Each channel has its own configuration `ChannelConfig`:
 ```rust
 // No guarantee of message delivery or order
 let send_type = SendType::Unreliable;
-// guarantee of message delivery and order
+// Guarantee of message delivery and order
 let send_type = SendType::ReliableOrdered {
     // If a message is lost, it will be resent after this duration
     resend_time: Duration::from_millis(300)
@@ -79,7 +79,7 @@ let channel_config = ChannelConfig {
     // but it can be repeated between the server and client lists.
     channel_id: 0,
     // Maximum number of bytes that the channel may hold without acknowledgement of messages before becoming full.
-    max_memory_usage_bytes: 5 * 1024 * 1024, // 5 megabytes
+    max_memory_usage_bytes: 5 * 1024 * 1024, // 5 mebibytes
     send_type
 };
 ```
@@ -224,21 +224,21 @@ Simple chat application made with egui to demonstrate how you could handle error
 
 ## Plugins
 
-Checkout [bevy_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_renet2) if you want to use renet2 as a plugin with the [Bevy engine](https://bevyengine.org/).
+Check out [bevy_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_renet2) if you want to use renet2 as a plugin with the [Bevy engine](https://bevyengine.org/).
 
-Checkout [bevy_replicon_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_replicon_renet2) if you want to use renet2 as a backend for [bevy_replicon](https://github.com/projectharmonia/bevy_replicon).
+Check out [bevy_replicon_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_replicon_renet2) if you want to use renet2 as a backend for [bevy_replicon](https://github.com/projectharmonia/bevy_replicon).
 
-Checkout [renet2_steam](https://github.com/UkoeHb/renet2/tree/main/renet2_steam) if you want to use the steam transport layer instead of the default one.
+Check out [renet2_steam](https://github.com/UkoeHb/renet2/tree/main/renet2_steam) if you want to use the steam transport layer instead of the default one.
 
 ## Visualizer
 
-Checkout [renet2_visualizer](https://github.com/UkoeHb/renet2/tree/main/renet2_visualizer) for an egui plugin to plot metrics data from renet clients and servers:
+Check out [renet2_visualizer](https://github.com/UkoeHb/renet2/tree/main/renet2_visualizer) for an egui plugin to plot metrics data from renet clients and servers:
 
 https://user-images.githubusercontent.com/35241085/175834010-b1eafd77-7ea2-47dc-a915-a399099c7a99.mp4
 
 ## Bevy compatibility
 
-| bevy | renet2 repository |
+| bevy | renet2 |
 |------|-------------------|
-| 0.15 | tag 0.0.7         |
-| 0.14 | tag 0.0.5         |
+| 0.15 | [0.0.7](https://github.com/UkoeHB/renet2/releases/tag/0.0.7)         |
+| 0.14 | [0.0.5](https://github.com/UkoeHB/renet2/releases/tag/0.0.7)         |
