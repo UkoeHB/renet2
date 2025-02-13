@@ -241,4 +241,4 @@ https://user-images.githubusercontent.com/35241085/175834010-b1eafd77-7ea2-47dc-
 | bevy | renet2 |
 |------|-------------------|
 | 0.15 | [0.0.7](https://github.com/UkoeHB/renet2/releases/tag/0.0.7)         |
-| 0.14 | [0.0.5](https://github.com/UkoeHB/renet2/releases/tag/0.0.7)         |
+| 0.14 | [0.0.5](https://github.com/UkoeHB/renet2/releases/tag/0.0.5)         |
