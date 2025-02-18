@@ -5,14 +5,15 @@ Provides utilities for setting up `renet2` servers and clients.
 
 1. Define a `GameServerSetupConfig` for your server.
 1. Collect the number of clients who will use each connection type into `ClientCounts`.
+    - Clients can send the server their preferred `ConnectionType` to aid in this (see the client workflow below).
 1. Make a `ConnectionConfig` with the channels for your renet2 connection with clients.
-    - This should match the `ConnectionConfigs` used by your clients.
+    - This should match the `ConnectionConfig` used by your clients.
     - If using the `bevy_replicon_renet2` crate, then the channels can be obtained from `RepliconChannels`. Use `ConnectionConfigs::from_channels`.
-1. Call `setup_combo_renet2_server` to get `RenetServe`, `NetcodeServerTransport`, and `ConnectMetas`.
+1. Call `setup_combo_renet2_server` to get `RenetServer`, `NetcodeServerTransport`, and `ConnectMetas`.
     - If using the `bevy` feature, call `setup_combo_renet2_server_in_bevy` instead.
 1. Drive the `RenetServer` and `NetcodeServerTransport` forward.
-    - This is handled automatically if you use the `bevy_renet2` crate.
-1. Use `ConnectMetas` to create `ServerConnectTokens` for clients based on their `ConnectionTypes`.
+    - This is handled automatically if you use the `bevy_renet2` or `bevy_replicon_renet2` crates.
+1. Use `ConnectMetas` to create `ServerConnectTokens` for clients based on their `ConnectionTypes` (see the client workflow below).
     - These 'metas' can be stored on a separate server from the game server.
 
 ### In-memory connections
@@ -23,7 +24,7 @@ Add in-memory clients to `ClientCounts` and follow the above steps.
 
 This crate uses self-signed certificates to set up webtransport servers. Self-signed certificates only last 2 weeks, so if your game server lives longer than that and you need webtransport, then you should use the underlying renet2/renet2_netcode APIs instead of this crate.
 
-Self-signed certificates are not supported everywhere. We assume clients will fall back to websockets if webtransport with self-signed certs are unavailable. `ConnectionType::inferred` will detect the correct connection type for each client.
+Self-signed certificates are not supported everywhere. We assume clients will fall back to websockets if webtransport with self-signed certs are unavailable. `ConnectionType::inferred` will detect the best connection type for each client.
 
 ### WebSocket TLS
 
@@ -33,7 +34,7 @@ If using `ws-rustls` and no `rustls::crypto::CryptoProvider` is installed, then 
 
 ### `tokio`
 
-A default `tokio` runtime is set up if a server needs webtransport or websockets.
+A default `tokio` runtime is set up if a server needs webtransport or websockets. If you want to reuse that runtime for something else like a webserver, use `enfync::builtin::native::TokioHandle::adopt_or_default` to get a handle to it for spawning tokio tasks.
 
 
 ## Client workflow
@@ -48,7 +49,7 @@ A default `tokio` runtime is set up if a server needs webtransport or websockets
 1. Call `setup_renet2_client` to get `RenetClient` and `NetcodeClientTransport`.
     - If using the `bevy` feature, call `setup_renet2_client_in_bevy` instead.
 1. Drive the `RenetClient` and `NetcodeClientTransport` forward.
-    - This is handled automatically if you use the `bevy_renet2` crate.
+    - This is handled automatically if you use the `bevy_renet2` or `bevy_replicon_renet2` crates.
 
 ### In-memory connections
 

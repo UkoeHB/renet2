@@ -86,22 +86,21 @@ impl GameServerSetupConfig {
 
         #[cfg(not(any(feature = "ws-native-tls", feature = "ws-rustls")))]
         {
-            Err(format!("failed getting websocket acceptor for certs {cert_chain:?} and {privkey:?}; missing feature ws-native-tls or \
-                ws-rustls"))
+            Err(format!(
+                "failed getting websocket acceptor for certs {cert_chain:?} and {privkey:?}; missing feature ws-native-tls or \
+                ws-rustls"
+            ))
         }
     }
 
     /// Format: (cert chain, private key).
     /// Files must be PEM encoded. The certs must be x509 and the privkey must be PKCS #8.
     #[cfg(feature = "ws-native-tls")]
-    pub fn get_native_tls_acceptor(
-        cert_chain: &PathBuf,
-        privkey: &PathBuf,
-    ) -> Result<tokio_native_tls::native_tls::TlsAcceptor, String> {
+    pub fn get_native_tls_acceptor(cert_chain: &PathBuf, privkey: &PathBuf) -> Result<tokio_native_tls::native_tls::TlsAcceptor, String> {
         let certs = std::fs::read(cert_chain)
             .map_err(|err| format!("failed reading cert chain at {cert_chain:?} for native tls acceptor: {err:?}"))?;
-        let privkey = std::fs::read(privkey)
-            .map_err(|err| format!("failed reading privkey at {privkey:?} for native tls acceptor: {err:?}"))?;
+        let privkey =
+            std::fs::read(privkey).map_err(|err| format!("failed reading privkey at {privkey:?} for native tls acceptor: {err:?}"))?;
         let identity = tokio_native_tls::native_tls::Identity::from_pkcs8(&certs, &privkey)
             .map_err(|err| format!("failed constructing native tls Identity: {err:?}"))?;
         tokio_native_tls::native_tls::TlsAcceptor::new(identity)
@@ -114,10 +113,7 @@ impl GameServerSetupConfig {
     /// If there is no `rustls::crypto::CryptoProvider` installed, then the `ring` default provider will be
     /// auto-installed.
     #[cfg(feature = "ws-rustls")]
-    pub fn get_rustls_server_config(
-        cert_chain: &PathBuf,
-        privkey: &PathBuf,
-    ) -> Result<std::sync::Arc<rustls::ServerConfig>, String> {
+    pub fn get_rustls_server_config(cert_chain: &PathBuf, privkey: &PathBuf) -> Result<std::sync::Arc<rustls::ServerConfig>, String> {
         use rustls_pki_types::pem::PemObject;
 
         let mut file_iter = rustls_pki_types::CertificateDer::pem_file_iter(cert_chain)

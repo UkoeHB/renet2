@@ -10,6 +10,8 @@ use crate::common::ConnectionType;
 #[derive(Debug, Default, Clone)]
 pub struct ClientCounts {
     /// The ids of in-memory clients that will connect.
+    ///
+    /// Ids must be in the range `[0, u16::MAX)`.
     pub memory_clients: Vec<u16>,
     /// The number of native clients that will connect.
     pub native_count: usize,
@@ -25,17 +27,21 @@ impl ClientCounts {
         match connection {
             ConnectionType::Memory => {
                 self.memory_clients
-                    .push(u16::try_from(client_id).expect("large client ids not supported for in-memory connections"));
+                    .push(u16::try_from(client_id).expect("client ids >= u16::MAX not supported for in-memory connections"));
             }
-            ConnectionType::Native => self.native_count += 1,
-            ConnectionType::WasmWt => self.wasm_wt_count += 1,
-            ConnectionType::WasmWs => self.wasm_ws_count += 1,
+            ConnectionType::Native => self.native_count = self.native_count.saturating_add(1),
+            ConnectionType::WasmWt => self.wasm_wt_count = self.wasm_wt_count.saturating_add(1),
+            ConnectionType::WasmWs => self.wasm_ws_count = self.wasm_ws_count.saturating_add(1),
         }
     }
 
     /// The total number of clients.
     pub fn total(&self) -> usize {
-        self.memory_clients.len() + self.native_count + self.wasm_wt_count + self.wasm_ws_count
+        self.memory_clients
+            .len()
+            .saturating_add(self.native_count)
+            .saturating_add(self.wasm_wt_count)
+            .saturating_add(self.wasm_ws_count)
     }
 }
 
