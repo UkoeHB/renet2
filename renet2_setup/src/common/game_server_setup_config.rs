@@ -32,6 +32,18 @@ pub struct GameServerSetupConfig {
     ///
     /// Set it to `0` if you don't need to target a specific port.
     pub wasm_ws_port: u16,
+    /// Public-facing port for native sockets.
+    ///
+    /// Set it to `0` to fall back to [`Self::native_port`].
+    pub native_port_proxy: u16,
+    /// Public-facing port for webtransport sockets.
+    ///
+    /// Set it to `0` to fall back to [`Self::wasm_wt_port`].
+    pub wasm_wt_port_proxy: u16,
+    /// Public-facing port for websockets.
+    ///
+    /// Set it to `0` to fall back to [`Self::wasm_ws_port`].
+    pub wasm_ws_port_proxy: u16,
     /// Proxy IP address to send to clients in connect tokens instead of the `server_ip`.
     ///
     /// Proxy IP addresses will be associated with the local ports assigned to each socket.
@@ -45,6 +57,10 @@ pub struct GameServerSetupConfig {
     /// Format: (cert chain, private key).
     /// Files must be PEM encoded.
     pub wss_certs: Option<(PathBuf, PathBuf)>,
+    /// Indicates if there is a TLS proxy set up for websocket connections.
+    ///
+    /// If this is true then [`Self::wss_certs`] should be `None`.
+    pub has_wss_proxy: bool,
 }
 
 impl GameServerSetupConfig {
@@ -60,9 +76,13 @@ impl GameServerSetupConfig {
             native_port: 0,
             wasm_wt_port: 0,
             wasm_ws_port: 0,
+            native_port_proxy: 0,
+            wasm_wt_port_proxy: 0,
+            wasm_ws_port_proxy: 0,
             proxy_ip: None,
             wss_certs: None,
             ws_domain: None,
+            has_wss_proxy: false,
         }
     }
 

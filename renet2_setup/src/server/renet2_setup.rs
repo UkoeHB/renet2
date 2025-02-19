@@ -101,8 +101,8 @@ fn add_native_socket(
         let local_addr = socket
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 native socket: {err:?}"))?;
-        let addrs =
-            if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), local_addr.port())] } else { vec![local_addr] };
+        let public_port = if config.native_port_proxy > 0 { config.native_port_proxy } else { local_addr.port() };
+        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), public_port)] } else { vec![local_addr] };
 
         let meta = ConnectMetaNative {
             server_config: config.clone(),
@@ -155,8 +155,8 @@ fn add_wasm_wt_socket(
         let local_addr = socket
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 webtransport socket: {err:?}"))?;
-        let addrs =
-            if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), local_addr.port())] } else { vec![local_addr] };
+        let public_port = if config.wasm_wt_port_proxy > 0 { config.wasm_wt_port_proxy } else { local_addr.port() };
+        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), public_port)] } else { vec![local_addr] };
 
         let meta = ConnectMetaWasmWt {
             server_config: config.clone(),
@@ -218,16 +218,22 @@ fn add_wasm_ws_socket(
         let local_addr = socket
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 native socket: {err:?}"))?;
+        let public_port = if config.wasm_ws_port_proxy > 0 { config.wasm_ws_port_proxy } else { local_addr.port() };
         let addrs = if config.ws_domain.is_some() {
             // Dummy public address when using a domain name.
             vec![SocketAddr::from(([0, 0, 0, 0], 0))]
         } else if let Some(proxy) = config.proxy_ip {
-            vec![SocketAddr::new(proxy.clone(), local_addr.port())]
+            vec![SocketAddr::new(proxy.clone(), public_port)]
         } else {
             vec![local_addr]
         };
-        let url = make_websocket_url(socket.is_encrypted(), addrs[0].ip(), local_addr.port(), config.ws_domain.clone())
-            .map_err(|err| format!("failed constructing renet2 websocket url: {err:?}"))?;
+        let url = make_websocket_url(
+            socket.is_encrypted() || config.has_wss_proxy,
+            addrs[0].ip(),
+            public_port,
+            config.ws_domain.clone(),
+        )
+        .map_err(|err| format!("failed constructing renet2 websocket url: {err:?}"))?;
 
         log::info!("wasm websockets renet2 socket; local addr = {}, url = {}", local_addr, url);
 
