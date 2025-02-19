@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## WIP
+## 0.4.0 - 02/19/25
 
 - Fix panics in `renet2_setup::ClientCounts` methods.
 - Update `GameServerSetupConfig` to include proxy IPs and allow proxy TLS for websockets.
