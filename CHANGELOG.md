@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 0.5.0
+## 0.5.0 - 02/21/25
 
 - Add `WebSocketAcceptor::Plain::has_tls_proxy` field to fix setup bug when there is TLS via proxy.
 
