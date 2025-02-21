@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.5.0
+
+- Add `WebSocketAcceptor::Plain::has_tls_proxy` field to fix setup bug when there is TLS via proxy.
+
 ## 0.4.0 - 02/19/25
 
 - Fix panics in `renet2_setup::ClientCounts` methods.

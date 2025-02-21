@@ -89,7 +89,9 @@ impl GameServerSetupConfig {
     #[cfg(feature = "ws_server_transport")]
     pub fn get_ws_acceptor(&self) -> Result<renet2_netcode::WebSocketAcceptor, String> {
         let Some((cert_chain, privkey)) = &self.wss_certs else {
-            return Ok(renet2_netcode::WebSocketAcceptor::Plain);
+            return Ok(renet2_netcode::WebSocketAcceptor::Plain {
+                has_tls_proxy: self.has_wss_proxy,
+            });
         };
 
         #[cfg(feature = "ws-native-tls")]

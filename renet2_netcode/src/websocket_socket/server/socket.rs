@@ -27,8 +27,11 @@ use crate::{client_idx_from_addr, client_idx_to_addr, NetcodeTransportError, Ser
 /// means TLS support is not security-critical (and may even be less efficient).
 #[derive(Clone)]
 pub enum WebSocketAcceptor {
-    /// Unencrypted.
-    Plain,
+    /// No TLS in the local server.
+    Plain {
+        /// Indicates if there is a TLS proxy outside the local server.
+        has_tls_proxy: bool,
+    },
 
     #[cfg(feature = "ws-native-tls")]
     NativeTls(tokio_native_tls::TlsAcceptor),
@@ -53,10 +56,10 @@ pub struct WebSocketServerConfig {
 }
 
 impl WebSocketServerConfig {
-    /// Makes a config without TLS.
+    /// Makes a config without TLS or a TLS proxy.
     pub fn new(listen: SocketAddr, max_clients: usize) -> Self {
         Self {
-            acceptor: WebSocketAcceptor::Plain,
+            acceptor: WebSocketAcceptor::Plain { has_tls_proxy: false },
             listen,
             max_clients,
         }
@@ -184,7 +187,7 @@ impl WebSocketServer {
     ///   machine is using all ports on a pre-defined IP address.
     pub fn new(config: WebSocketServerConfig, handle: tokio::runtime::Handle) -> Result<Self, Error> {
         let max_clients = config.max_clients;
-        let has_tls = !matches!(config.acceptor, WebSocketAcceptor::Plain);
+        let has_tls = !matches!(config.acceptor, WebSocketAcceptor::Plain { has_tls_proxy: false });
 
         let socket = handle.block_on(async { tokio::net::TcpListener::bind(config.listen).await })?;
         let addr = socket.local_addr()?;
@@ -306,7 +309,7 @@ impl WebSocketServer {
             Ok(res)
         };
         let make_server_client: Box<dyn FnOnce(u64, u64) -> WebSocketServerClient + Send + Sync> = match acceptor {
-            WebSocketAcceptor::Plain => {
+            WebSocketAcceptor::Plain { has_tls_proxy: _ } => {
                 let socket = tokio_tungstenite::accept_hdr_async(conn, callback).await?;
                 Box::new(move |client_id, client_idx| WebSocketServerClient::new(socket, client_id, client_idx))
             }

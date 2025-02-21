@@ -227,13 +227,8 @@ fn add_wasm_ws_socket(
         } else {
             vec![local_addr]
         };
-        let url = make_websocket_url(
-            socket.is_encrypted() || config.has_wss_proxy,
-            addrs[0].ip(),
-            public_port,
-            config.ws_domain.clone(),
-        )
-        .map_err(|err| format!("failed constructing renet2 websocket url: {err:?}"))?;
+        let url = make_websocket_url(socket.is_encrypted(), addrs[0].ip(), public_port, config.ws_domain.clone())
+            .map_err(|err| format!("failed constructing renet2 websocket url: {err:?}"))?;
 
         log::info!("wasm websockets renet2 socket; local addr = {}, url = {}", local_addr, url);
 
