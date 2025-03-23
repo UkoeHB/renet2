@@ -58,8 +58,8 @@ impl RepliconRenetServerPlugin {
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     let client_id = ClientId::new(*client_id);
                     let client_entity = *client_map
-                      .get(&client_id)
-                      .expect("clients should be connected before disconnection");
+                        .get(&client_id)
+                        .expect("clients should be connected before disconnection");
 
                     commands.entity(client_entity).despawn();
                     debug!("disconnecting `{client_entity}` with `{client_id:?}`: {reason}");
@@ -91,15 +91,11 @@ impl RepliconRenetServerPlugin {
         }
     }
 
-    fn send_packets(
-        mut renet_server: ResMut<RenetServer>,
-        mut replicon_server: ResMut<RepliconServer>,
-        clients: Query<&ConnectedClient>,
-    ) {
+    fn send_packets(mut renet_server: ResMut<RenetServer>, mut replicon_server: ResMut<RepliconServer>, clients: Query<&ConnectedClient>) {
         for (client_entity, channel_id, message) in replicon_server.drain_sent() {
             let client = clients
-              .get(client_entity)
-              .expect("messages should be sent only to connected clients");
+                .get(client_entity)
+                .expect("messages should be sent only to connected clients");
             renet_server.send_message(client.id().get(), channel_id, message)
         }
     }

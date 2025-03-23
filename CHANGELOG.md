@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.6.0 - 03/23/25
+
+- Update `bevy_replicon` to v0.31.
+
 ## 0.5.0 - 02/21/25
 
 - Add `WebSocketAcceptor::Plain::has_tls_proxy` field to fix setup bug when there is TLS via proxy.
