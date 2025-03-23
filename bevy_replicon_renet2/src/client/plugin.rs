@@ -1,5 +1,5 @@
 #[cfg(feature = "netcode")]
-use crate::netcode::{NetcodeClientPlugin, NetcodeClientTransport};
+use crate::netcode::NetcodeClientPlugin;
 use crate::renet2::{RenetClient, RenetClientPlugin, RenetReceive, RenetSend};
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
@@ -45,15 +45,8 @@ impl RepliconRenetClientPlugin {
         }
     }
 
-    fn set_connected(mut client: ResMut<RepliconClient>, #[cfg(feature = "netcode")] transport: Res<NetcodeClientTransport>) {
-        // In renet only transport knows the ID.
-        // TODO: Pending renet issue https://github.com/lucaspoffo/renet/issues/153
-        #[cfg(feature = "netcode")]
-        let client_id = Some(ClientId::new(transport.client_id()));
-        #[cfg(not(feature = "netcode"))]
-        let client_id = None;
-
-        client.set_status(RepliconClientStatus::Connected { client_id });
+    fn set_connected(mut client: ResMut<RepliconClient>) {
+        client.set_status(RepliconClientStatus::Connected);
     }
 
     fn receive_packets(
@@ -66,6 +59,12 @@ impl RepliconRenetClientPlugin {
                 replicon_client.insert_received(channel_id, message);
             }
         }
+
+        let stats = replicon_client.stats_mut();
+        stats.rtt = renet_client.rtt();
+        stats.packet_loss = renet_client.packet_loss();
+        stats.sent_bps = renet_client.bytes_sent_per_sec();
+        stats.received_bps = renet_client.bytes_received_per_sec();
     }
 
     fn send_packets(mut renet_client: ResMut<RenetClient>, mut replicon_client: ResMut<RepliconClient>) {

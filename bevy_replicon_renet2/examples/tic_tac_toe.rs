@@ -8,12 +8,11 @@ use std::{
     time::SystemTime,
 };
 
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::hashbrown::HashMap};
+use bevy_renet2::netcode::{NativeSocket, ServerSetupConfig};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{
-    netcode::{
-        ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
-    },
+    netcode::{ClientAuthentication, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication},
     renet2::{ConnectionConfig, RenetClient, RenetServer},
     RenetChannelsExt, RepliconRenetPlugins,
 };
@@ -32,7 +31,11 @@ fn main() {
                 }),
                 ..Default::default()
             }),
-            RepliconPlugins,
+            RepliconPlugins.set(ServerPlugin {
+                // We start replication manually because we want to exchange cell mappings first.
+                replicate_after_connect: false,
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
             TicTacToePlugin,
         ))
@@ -45,35 +48,38 @@ impl Plugin for TicTacToePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>()
             .init_resource::<SymbolFont>()
-            .init_resource::<CurrentTurn>()
+            .init_resource::<TurnSymbol>()
             .replicate::<Symbol>()
-            .replicate::<CellIndex>()
-            .replicate::<Player>()
-            .add_client_event::<CellPick>(ChannelKind::Ordered)
+            .add_client_trigger::<CellPick>(ChannelKind::Ordered)
+            .add_client_trigger::<MapCells>(ChannelKind::Ordered)
+            .add_server_trigger::<MakeLocal>(ChannelKind::Ordered)
             .insert_resource(ClearColor(BACKGROUND_COLOR))
-            .add_systems(Startup, (Self::setup_ui, Self::read_cli.map(Result::unwrap)))
-            .add_systems(OnEnter(GameState::InGame), (Self::show_turn_text, Self::show_turn_symbol))
-            .add_systems(OnEnter(GameState::Disconnected), Self::show_disconnected_text)
-            .add_systems(OnEnter(GameState::Winner), Self::show_winner_text)
-            .add_systems(OnEnter(GameState::Tie), Self::show_tie_text)
+            .add_observer(disconnect_by_client)
+            .add_observer(init_client)
+            .add_observer(make_local)
+            .add_observer(apply_pick)
+            .add_observer(init_symbols)
+            .add_observer(advance_turn)
+            .add_systems(Startup, (setup_ui, read_cli.map(Result::unwrap)))
+            .add_systems(OnEnter(GameState::InGame), (show_turn_text, show_turn_symbol))
+            .add_systems(OnEnter(GameState::Disconnected), show_disconnected_text)
+            .add_systems(OnEnter(GameState::Winner), show_winner_text)
+            .add_systems(OnEnter(GameState::Tie), show_tie_text)
+            .add_systems(OnEnter(GameState::Disconnected), stop_networking)
             .add_systems(
                 Update,
                 (
-                    Self::show_connecting_text.run_if(resource_added::<RenetClient>),
-                    Self::show_waiting_player_text.run_if(resource_added::<RenetServer>),
-                    Self::start_game.run_if(client_connected).run_if(any_component_added::<Player>), // Wait until client replicates players before starting the game.
+                    show_connecting_text.run_if(resource_added::<RenetClient>),
+                    show_waiting_client_text.run_if(resource_added::<RenetServer>),
+                    client_start.run_if(client_just_connected),
                     (
-                        Self::handle_interactions.run_if(local_player_turn),
-                        Self::spawn_symbols.run_if(server_or_singleplayer),
-                        Self::init_symbols,
-                        Self::advance_turn.run_if(any_component_added::<CellIndex>),
-                        Self::show_turn_symbol.run_if(resource_changed::<CurrentTurn>),
+                        disconnect_by_server.run_if(client_just_disconnected),
+                        update_buttons_background.run_if(local_player_turn),
+                        show_turn_symbol.run_if(resource_changed::<TurnSymbol>),
                     )
                         .run_if(in_state(GameState::InGame)),
                 ),
-            )
-            .add_observer(Self::handle_connection)
-            .add_observer(Self::handle_disconnect);
+            );
     }
 }
 
@@ -81,393 +87,430 @@ const GRID_SIZE: usize = 3;
 
 const BACKGROUND_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
-const PROTOCOL_ID: u64 = 0;
-
 // Bottom text defined in two sections, first for text and second for symbols with different font.
 const TEXT_SECTION: usize = 0;
 const SYMBOL_SECTION: usize = 1;
 
-impl TicTacToePlugin {
-    fn setup_ui(mut commands: Commands, symbol_font: Res<SymbolFont>) {
-        commands.spawn(Camera2d::default());
+const CELL_SIZE: f32 = 100.0;
+const LINE_THICKNESS: f32 = 10.0;
 
-        const LINES_COUNT: usize = GRID_SIZE + 1;
+const BUTTON_SIZE: f32 = CELL_SIZE / 1.2;
+const BUTTON_MARGIN: f32 = (CELL_SIZE + LINE_THICKNESS - BUTTON_SIZE) / 2.0;
 
-        const CELL_SIZE: f32 = 100.0;
-        const LINE_THICKNESS: f32 = 10.0;
-        const BOARD_SIZE: f32 = CELL_SIZE * GRID_SIZE as f32 + LINES_COUNT as f32 * LINE_THICKNESS;
+fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannels>) -> Result<(), Box<dyn Error>> {
+    const PROTOCOL_ID: u64 = 0;
 
-        const BOARD_COLOR: Color = Color::srgb(0.8, 0.8, 0.8);
-
-        for line in 0..LINES_COUNT {
-            let position = -BOARD_SIZE / 2.0 + line as f32 * (CELL_SIZE + LINE_THICKNESS) + LINE_THICKNESS / 2.0;
-
-            // Horizontal
-            commands.spawn((
-                Sprite {
-                    color: BOARD_COLOR,
-                    ..Default::default()
-                },
-                Transform {
-                    translation: Vec3::Y * position,
-                    scale: Vec3::new(BOARD_SIZE, LINE_THICKNESS, 1.0),
-                    ..Default::default()
-                },
+    match *cli {
+        Cli::Hotseat => {
+            info!("starting hotseat");
+            // Set all players to server to play from a single machine and start the game right away.
+            commands.spawn((LocalPlayer, Symbol::Cross));
+            commands.spawn((LocalPlayer, Symbol::Nought));
+            commands.set_state(GameState::InGame);
+        }
+        Cli::Server { port, symbol } => {
+            info!("starting server as {symbol} at port {port}");
+            let server = RenetServer::new(ConnectionConfig::from_channels(
+                channels.get_server_configs(),
+                channels.get_client_configs(),
             ));
 
-            // Vertical
-            commands.spawn((
-                Sprite {
-                    color: BOARD_COLOR,
-                    ..Default::default()
-                },
-                Transform {
-                    translation: Vec3::X * position,
-                    scale: Vec3::new(LINE_THICKNESS, BOARD_SIZE, 1.0),
-                    ..Default::default()
-                },
-            ));
-        }
-
-        const BUTTON_SIZE: f32 = CELL_SIZE / 1.2;
-        const BUTTON_MARGIN: f32 = (CELL_SIZE + LINE_THICKNESS - BUTTON_SIZE) / 2.0;
-
-        const TEXT_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
-        const FONT_SIZE: f32 = 40.0;
-
-        commands
-            .spawn(Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..Default::default()
-            })
-            .with_children(|parent| {
-                parent
-                    .spawn(Node {
-                        flex_direction: FlexDirection::Column,
-                        width: Val::Px(BOARD_SIZE - LINE_THICKNESS),
-                        height: Val::Px(BOARD_SIZE - LINE_THICKNESS),
-                        ..Default::default()
-                    })
-                    .with_children(|parent| {
-                        parent
-                            .spawn((
-                                GridNode,
-                                Node {
-                                    display: Display::Grid,
-                                    grid_template_columns: vec![GridTrack::auto(); GRID_SIZE],
-                                    ..Default::default()
-                                },
-                            ))
-                            .with_children(|parent| {
-                                for _ in 0..GRID_SIZE * GRID_SIZE {
-                                    parent.spawn((
-                                        Node {
-                                            width: Val::Px(BUTTON_SIZE),
-                                            height: Val::Px(BUTTON_SIZE),
-                                            margin: UiRect::all(Val::Px(BUTTON_MARGIN)),
-                                            ..Default::default()
-                                        },
-                                        BackgroundColor(BACKGROUND_COLOR.into()),
-                                        Button,
-                                    ));
-                                }
-                            });
-
-                        parent
-                            .spawn(Node {
-                                margin: UiRect::top(Val::Px(20.0)),
-                                justify_content: JustifyContent::Center,
-                                ..Default::default()
-                            })
-                            .with_children(|parent| {
-                                parent
-                                    .spawn((
-                                        Text::default(),
-                                        TextFont {
-                                            font_size: FONT_SIZE,
-                                            ..default()
-                                        },
-                                        TextColor(TEXT_COLOR),
-                                        BottomText,
-                                    ))
-                                    .with_child((
-                                        TextSpan::default(),
-                                        TextFont {
-                                            font: symbol_font.0.clone(),
-                                            font_size: FONT_SIZE,
-                                            ..default()
-                                        },
-                                        TextColor(TEXT_COLOR),
-                                    ));
-                            });
-                    });
-            });
-    }
-
-    fn read_cli(
-        mut commands: Commands,
-        mut game_state: ResMut<NextState<GameState>>,
-        cli: Res<Cli>,
-        channels: Res<RepliconChannels>,
-    ) -> Result<(), Box<dyn Error>> {
-        match *cli {
-            Cli::Hotseat => {
-                // Set all players to server to play from a single machine and start the game right away.
-                commands.spawn(PlayerBundle::server(Symbol::Cross));
-                commands.spawn(PlayerBundle::server(Symbol::Nought));
-                game_state.set(GameState::InGame);
-            }
-            Cli::Server { port, symbol } => {
-                let server = RenetServer::new(ConnectionConfig::from_channels(
-                    channels.get_server_configs(),
-                    channels.get_client_configs(),
-                ));
-
-                let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-                let public_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
-                let socket = UdpSocket::bind(public_addr)?;
-                let server_config = ServerSetupConfig {
-                    current_time,
-                    max_clients: 1,
-                    protocol_id: PROTOCOL_ID,
-                    authentication: ServerAuthentication::Unsecure,
-                    socket_addresses: vec![vec![public_addr]],
-                };
-                let transport = NetcodeServerTransport::new(server_config, NativeSocket::new(socket).unwrap())?;
-
-                commands.insert_resource(server);
-                commands.insert_resource(transport);
-                commands.spawn(PlayerBundle::server(symbol));
-            }
-            Cli::Client { port, ip } => {
-                let client = RenetClient::new(
-                    ConnectionConfig::from_channels(channels.get_server_configs(), channels.get_client_configs()),
-                    false,
-                );
-
-                let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-                let client_id = current_time.as_millis() as u64;
-                let server_addr = SocketAddr::new(ip, port);
-                let socket = UdpSocket::bind((ip, 0))?;
-                let authentication = ClientAuthentication::Unsecure {
-                    client_id,
-                    protocol_id: PROTOCOL_ID,
-                    socket_id: 0,
-                    server_addr,
-                    user_data: None,
-                };
-                let transport = NetcodeClientTransport::new(current_time, authentication, NativeSocket::new(socket).unwrap())?;
-
-                commands.insert_resource(client);
-                commands.insert_resource(transport);
-            }
-        }
-
-        Ok(())
-    }
-
-    fn show_turn_text(mut bottom_text: Query<&mut Text, With<BottomText>>) {
-        bottom_text.single_mut().0 = "Current turn: ".into();
-    }
-
-    fn show_turn_symbol(bottom_text: Query<Entity, With<BottomText>>, mut writer: TextUiWriter, current_turn: Res<CurrentTurn>) {
-        let text_entity = bottom_text.single();
-        *writer.get_text(text_entity, SYMBOL_SECTION).unwrap() = current_turn.glyph().into();
-        *writer.get_color(text_entity, SYMBOL_SECTION).unwrap() = current_turn.color().into();
-    }
-
-    fn show_disconnected_text(bottom_text: Query<Entity, With<BottomText>>, mut writer: TextUiWriter) {
-        let text_entity = bottom_text.single();
-        *writer.get_text(text_entity, TEXT_SECTION).unwrap() = "Client disconnected".into();
-        writer.get_text(text_entity, SYMBOL_SECTION).unwrap().clear();
-    }
-
-    fn show_winner_text(bottom_text: Query<Entity, With<BottomText>>, mut writer: TextUiWriter) {
-        let text_entity = bottom_text.single();
-        *writer.get_text(text_entity, TEXT_SECTION).unwrap() = "Winner: ".into();
-    }
-
-    fn show_tie_text(bottom_text: Query<Entity, With<BottomText>>, mut writer: TextUiWriter) {
-        let text_entity = bottom_text.single();
-        *writer.get_text(text_entity, TEXT_SECTION).unwrap() = "Tie".into();
-        writer.get_text(text_entity, SYMBOL_SECTION).unwrap().clear();
-    }
-
-    fn show_connecting_text(bottom_text: Query<Entity, With<BottomText>>, mut writer: TextUiWriter) {
-        let text_entity = bottom_text.single();
-        *writer.get_text(text_entity, TEXT_SECTION).unwrap() = "Connecting".into();
-    }
-
-    fn show_waiting_player_text(bottom_text: Query<Entity, With<BottomText>>, mut writer: TextUiWriter) {
-        let text_entity = bottom_text.single();
-        *writer.get_text(text_entity, TEXT_SECTION).unwrap() = "Waiting player".into();
-    }
-
-    /// Waits for client to connect to start the game.
-    ///
-    /// Only used by server.
-    fn handle_connection(
-        event: Trigger<ClientConnected>,
-        mut commands: Commands,
-        mut game_state: ResMut<NextState<GameState>>,
-        players: Query<&Symbol, With<Player>>,
-    ) {
-        let ClientConnected { client_id } = event.event();
-        let server_symbol = players.single();
-        commands.spawn(PlayerBundle::new(*client_id, server_symbol.next()));
-        game_state.set(GameState::InGame);
-    }
-
-    /// Only used by server.
-    fn handle_disconnect(_event: Trigger<ClientDisconnected>, mut game_state: ResMut<NextState<GameState>>) {
-        game_state.set(GameState::Disconnected);
-    }
-
-    fn start_game(mut game_state: ResMut<NextState<GameState>>) {
-        game_state.set(GameState::InGame);
-    }
-
-    fn handle_interactions(
-        mut buttons: Query<(Entity, &Parent, &Interaction, &mut BackgroundColor), Changed<Interaction>>,
-        children: Query<&Children>,
-        mut pick_events: EventWriter<CellPick>,
-    ) {
-        const HOVER_COLOR: Color = Color::srgb(0.85, 0.85, 0.85);
-
-        for (button_entity, button_parent, interaction, mut background) in &mut buttons {
-            match interaction {
-                Interaction::Pressed => {
-                    let buttons = children.get(**button_parent).unwrap();
-                    let index = buttons.iter().position(|&entity| entity == button_entity).unwrap();
-
-                    // We send a pick event and wait for the pick to be replicated back to the client.
-                    // In case of server or single-player the event will re-translated into [`FromClient`] event to re-use the logic.
-                    pick_events.send(CellPick(index));
-                }
-                Interaction::Hovered => *background = HOVER_COLOR.into(),
-                Interaction::None => *background = BACKGROUND_COLOR.into(),
+            let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+            let public_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
+            let socket = UdpSocket::bind(public_addr)?;
+            let server_config = ServerSetupConfig {
+                current_time,
+                max_clients: 10,
+                protocol_id: PROTOCOL_ID,
+                authentication: ServerAuthentication::Unsecure,
+                socket_addresses: vec![vec![public_addr]],
             };
+            let transport = NetcodeServerTransport::new(server_config, NativeSocket::new(socket).unwrap())?;
+
+            commands.insert_resource(server);
+            commands.insert_resource(transport);
+            commands.spawn((LocalPlayer, symbol));
+        }
+        Cli::Client { port, ip } => {
+            info!("connecting to {ip}:{port}");
+            let client = RenetClient::new(
+                ConnectionConfig::from_channels(channels.get_server_configs(), channels.get_client_configs()),
+                false,
+            );
+
+            let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+            let client_id = current_time.as_millis() as u64;
+            let server_addr = SocketAddr::new(ip, port);
+            let socket = UdpSocket::bind((ip, 0))?;
+            let authentication = ClientAuthentication::Unsecure {
+                client_id,
+                protocol_id: PROTOCOL_ID,
+                socket_id: 0,
+                server_addr,
+                user_data: None,
+            };
+            let transport = NetcodeClientTransport::new(current_time, authentication, NativeSocket::new(socket).unwrap())?;
+
+            commands.insert_resource(client);
+            commands.insert_resource(transport);
         }
     }
 
-    /// Handles cell pick events.
-    ///
-    /// Only for single-player and server.
-    fn spawn_symbols(
-        mut commands: Commands,
-        mut pick_events: EventReader<FromClient<CellPick>>,
-        symbols: Query<&CellIndex>,
-        current_turn: Res<CurrentTurn>,
-        players: Query<(&Player, &Symbol)>,
-    ) {
-        for FromClient { client_id, event } in pick_events.read().copied() {
-            // It's good to check the received data, client could be cheating.
-            if event.0 > GRID_SIZE * GRID_SIZE {
-                debug!("received invalid cell index {:?}", event.0);
-                continue;
-            }
+    Ok(())
+}
 
-            if !players
-                .iter()
-                .any(|(player, &symbol)| player.0 == client_id && symbol == current_turn.0)
-            {
-                debug!("{client_id:?} chose cell {:?} at wrong turn", event.0);
-                continue;
-            }
+fn setup_ui(mut commands: Commands, symbol_font: Res<SymbolFont>) {
+    commands.spawn(Camera2d);
 
-            if symbols.iter().any(|cell_index| cell_index.0 == event.0) {
-                debug!("{client_id:?} has chosen an already occupied cell {:?}", event.0);
-                continue;
-            }
+    const LINES_COUNT: usize = GRID_SIZE + 1;
+    const BOARD_SIZE: f32 = CELL_SIZE * GRID_SIZE as f32 + LINES_COUNT as f32 * LINE_THICKNESS;
+    const BOARD_COLOR: Color = Color::srgb(0.8, 0.8, 0.8);
 
-            // Spawn "blueprint" of the cell that client will replicate.
-            commands.spawn(SymbolBundle::new(current_turn.0, event.0));
+    for line in 0..LINES_COUNT {
+        let position = -BOARD_SIZE / 2.0 + line as f32 * (CELL_SIZE + LINE_THICKNESS) + LINE_THICKNESS / 2.0;
+
+        // Horizontal
+        commands.spawn((
+            Sprite {
+                color: BOARD_COLOR,
+                ..Default::default()
+            },
+            Transform {
+                translation: Vec3::Y * position,
+                scale: Vec3::new(BOARD_SIZE, LINE_THICKNESS, 1.0),
+                ..Default::default()
+            },
+        ));
+
+        // Vertical
+        commands.spawn((
+            Sprite {
+                color: BOARD_COLOR,
+                ..Default::default()
+            },
+            Transform {
+                translation: Vec3::X * position,
+                scale: Vec3::new(LINE_THICKNESS, BOARD_SIZE, 1.0),
+                ..Default::default()
+            },
+        ));
+    }
+
+    const TEXT_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
+    const FONT_SIZE: f32 = 32.0;
+
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            parent
+                .spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    width: Val::Px(BOARD_SIZE - LINE_THICKNESS),
+                    height: Val::Px(BOARD_SIZE - LINE_THICKNESS),
+                    ..Default::default()
+                })
+                .with_children(|parent| {
+                    parent
+                        .spawn(Node {
+                            display: Display::Grid,
+                            grid_template_columns: vec![GridTrack::auto(); GRID_SIZE],
+                            ..Default::default()
+                        })
+                        .with_children(|parent| {
+                            for index in 0..GRID_SIZE * GRID_SIZE {
+                                parent.spawn(Cell { index }).observe(pick_cell);
+                            }
+                        });
+
+                    parent
+                        .spawn(Node {
+                            margin: UiRect::top(Val::Px(20.0)),
+                            justify_content: JustifyContent::Center,
+                            ..Default::default()
+                        })
+                        .with_children(|parent| {
+                            parent
+                                .spawn((
+                                    Text::default(),
+                                    TextFont {
+                                        font_size: FONT_SIZE,
+                                        ..Default::default()
+                                    },
+                                    TextColor(TEXT_COLOR),
+                                    BottomText,
+                                ))
+                                .with_child((
+                                    TextSpan::default(),
+                                    TextFont {
+                                        font: symbol_font.0.clone(),
+                                        font_size: FONT_SIZE,
+                                        ..Default::default()
+                                    },
+                                    TextColor(TEXT_COLOR),
+                                ));
+                        });
+                });
+        });
+}
+
+/// Converts point clicks into cell picking events.
+///
+/// We don't just send mouse clicks to save traffic, they contain a lot of extra information.
+fn pick_cell(
+    trigger: Trigger<Pointer<Click>>,
+    mut commands: Commands,
+    turn_symbol: Res<TurnSymbol>,
+    game_state: Res<State<GameState>>,
+    cells: Query<&Cell>,
+    players: Query<&Symbol, With<LocalPlayer>>,
+) {
+    if *game_state != GameState::InGame {
+        return;
+    }
+
+    if !local_player_turn(turn_symbol, players) {
+        return;
+    }
+
+    let cell = cells.get(trigger.entity()).expect("cells should have assigned indices");
+    // We don't check if a cell can't be picked on client on purpose
+    // just to demonstrate how server can receive invalid requests from a client.
+    info!("picking cell {}", cell.index);
+    commands.client_trigger(CellPick { index: cell.index });
+}
+
+/// Handles cell pick events.
+///
+/// Used only for single-player and server.
+fn apply_pick(
+    trigger: Trigger<FromClient<CellPick>>,
+    mut commands: Commands,
+    cells: Query<(Entity, &Cell), Without<Symbol>>,
+    turn_symbol: Res<TurnSymbol>,
+    players: Query<&Symbol>,
+) {
+    // It's good to check the received data because client could be cheating.
+    if trigger.client_entity != SERVER {
+        let symbol = *players
+            .get(trigger.client_entity)
+            .expect("all clients should have assigned symbols");
+        if symbol != **turn_symbol {
+            error!("`{}` chose cell {} at wrong turn", trigger.client_entity, trigger.index);
+            return;
         }
     }
 
-    /// Initializes spawned symbol on client after replication and on server / single-player right after the spawn.
-    fn init_symbols(
-        mut commands: Commands,
-        symbol_font: Res<SymbolFont>,
-        symbols: Query<(Entity, &CellIndex, &Symbol), Added<Symbol>>,
-        grid_nodes: Query<&Children, With<GridNode>>,
-        mut background_colors: Query<&mut BackgroundColor>,
-    ) {
-        for (symbol_entity, cell_index, symbol) in &symbols {
-            let children = grid_nodes.single();
-            let button_entity = *children.get(cell_index.0).expect("symbols should point to valid buttons");
+    let Some((entity, _)) = cells.iter().find(|(_, cell)| cell.index == trigger.index) else {
+        error!("`{}` has chosen occupied or invalid cell {}", trigger.client_entity, trigger.index);
+        return;
+    };
 
-            let mut background = background_colors
-                .get_mut(button_entity)
-                .expect("buttons should be initialized with color");
-            *background = BACKGROUND_COLOR.into();
+    commands.entity(entity).insert(**turn_symbol);
+}
 
-            commands.entity(button_entity).remove::<Interaction>().add_child(symbol_entity);
+/// Initializes spawned symbol on client after replication and on server / single-player right after the spawn.
+fn init_symbols(
+    trigger: Trigger<OnAdd, Symbol>,
+    mut commands: Commands,
+    symbol_font: Res<SymbolFont>,
+    mut cells: Query<(&mut BackgroundColor, &Symbol), With<Button>>,
+) {
+    let Ok((mut background, symbol)) = cells.get_mut(trigger.entity()) else {
+        return;
+    };
+    *background = BACKGROUND_COLOR.into();
 
-            commands.entity(symbol_entity).insert((
-                Text::new(symbol.glyph()),
-                TextFont {
-                    font: symbol_font.0.clone(),
-                    font_size: 80.0,
-                    ..default()
-                },
-                TextColor(symbol.color()),
-            ));
+    commands.entity(trigger.entity()).remove::<Interaction>().with_children(|parent| {
+        parent.spawn((
+            Text::new(symbol.glyph()),
+            TextFont {
+                font: symbol_font.0.clone(),
+                font_size: 65.0,
+                ..Default::default()
+            },
+            TextColor(symbol.color()),
+        ));
+    });
+}
+
+/// Sends cell and local player entities and starts the game.
+///
+/// Replicon maps entities when you replicate them from server automatically.
+/// But in this game we spawn cells beforehand. So we send a special event to
+/// server to receive replication to already existing entities.
+///
+/// Used only for client.
+fn client_start(mut commands: Commands, cells: Query<(Entity, &Cell)>) {
+    let mut entities = HashMap::new();
+    for (entity, cell) in &cells {
+        entities.insert(cell.index, entity);
+    }
+
+    commands.client_trigger(MapCells(entities));
+    commands.set_state(GameState::InGame);
+}
+
+/// Estabializes mappings between spawned client and server entities and starts the game.
+///
+/// Used only for server.
+fn init_client(
+    trigger: Trigger<FromClient<MapCells>>,
+    mut commands: Commands,
+    cells: Query<(Entity, &Cell)>,
+    server_symbol: Single<&Symbol, With<LocalPlayer>>,
+) {
+    // Usually entity map modified directly on an connected client entity,
+    // it's a required component of `ReplicatedClient`.
+    // But since we set `replicate_after_connect` to `false`,
+    // we insert it together with `ReplicatedClient`.
+    let mut entity_map = ClientEntityMap::default();
+    for (server_entity, cell) in &cells {
+        let Some(&client_entity) = trigger.get(&cell.index) else {
+            error!("received cells missing index {}, disconnecting", cell.index);
+            commands.set_state(GameState::Disconnected);
+            return;
+        };
+
+        entity_map.insert(server_entity, client_entity);
+    }
+
+    // Utilize client entity as a player for convenient lookups by `client_entity`.
+    commands
+        .entity(trigger.client_entity)
+        .insert((Player, server_symbol.next(), ReplicatedClient, entity_map));
+
+    commands.server_trigger_targets(
+        ToClients {
+            mode: SendMode::Direct(trigger.client_entity),
+            event: MakeLocal,
+        },
+        trigger.client_entity,
+    );
+
+    commands.set_state(GameState::InGame);
+}
+
+fn make_local(trigger: Trigger<MakeLocal>, mut commands: Commands) {
+    commands.entity(trigger.entity()).insert(LocalPlayer);
+}
+
+/// Sets the game in disconnected state if client closes the connection.
+///
+/// Used only for server.
+fn disconnect_by_client(_trigger: Trigger<OnRemove, ConnectedClient>, game_state: Res<State<GameState>>, mut commands: Commands) {
+    info!("client closed the connection");
+    if *game_state == GameState::InGame {
+        commands.set_state(GameState::Disconnected);
+    }
+}
+
+/// Sets the game in disconnected state if server closes the connection.
+///
+/// Used only for client.
+fn disconnect_by_server(mut commands: Commands) {
+    info!("server closed the connection");
+    commands.set_state(GameState::Disconnected);
+}
+
+/// Closes all sockets.
+fn stop_networking(mut commands: Commands) {
+    commands.remove_resource::<RenetServer>();
+    commands.remove_resource::<RenetClient>();
+}
+
+/// Checks the winner and advances the turn.
+fn advance_turn(
+    _trigger: Trigger<OnAdd, Symbol>,
+    mut commands: Commands,
+    mut turn_symbol: ResMut<TurnSymbol>,
+    symbols: Query<(&Cell, &Symbol)>,
+) {
+    let mut board = [None; GRID_SIZE * GRID_SIZE];
+    for (cell, &symbol) in &symbols {
+        board[cell.index] = Some(symbol);
+    }
+
+    const WIN_CONDITIONS: [[usize; GRID_SIZE]; 8] = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [0, 3, 6],
+        [1, 4, 7],
+        [2, 5, 8],
+        [0, 4, 8],
+        [2, 4, 6],
+    ];
+
+    for indices in WIN_CONDITIONS {
+        let symbols = indices.map(|index| board[index]);
+        if symbols[0].is_some() && symbols.windows(2).all(|symbols| symbols[0] == symbols[1]) {
+            commands.set_state(GameState::Winner);
+            info!("{} wins the game", **turn_symbol);
+            return;
         }
     }
 
-    /// Checks the winner and advances the turn.
-    fn advance_turn(
-        mut current_turn: ResMut<CurrentTurn>,
-        mut game_state: ResMut<NextState<GameState>>,
-        symbols: Query<(&CellIndex, &Symbol)>,
-    ) {
-        let mut board = [None; GRID_SIZE * GRID_SIZE];
-        for (cell_index, &symbol) in &symbols {
-            board[cell_index.0] = Some(symbol);
-        }
-
-        const WIN_CONDITIONS: [[usize; GRID_SIZE]; 8] = [
-            [0, 1, 2],
-            [3, 4, 5],
-            [6, 7, 8],
-            [0, 3, 6],
-            [1, 4, 7],
-            [2, 5, 8],
-            [0, 4, 8],
-            [2, 4, 6],
-        ];
-
-        for indexes in WIN_CONDITIONS {
-            let symbols = indexes.map(|index| board[index]);
-            if symbols[0].is_some() && symbols.windows(2).all(|symbols| symbols[0] == symbols[1]) {
-                game_state.set(GameState::Winner);
-                return;
-            }
-        }
-
-        if board.iter().all(Option::is_some) {
-            game_state.set(GameState::Tie);
-        } else {
-            current_turn.0 = current_turn.next();
-        }
+    if board.iter().all(Option::is_some) {
+        info!("game ended in a tie");
+        commands.set_state(GameState::Tie);
+    } else {
+        **turn_symbol = turn_symbol.next();
     }
+}
+
+fn update_buttons_background(mut buttons: Query<(&Interaction, &mut BackgroundColor), Changed<Interaction>>) {
+    const HOVER_COLOR: Color = Color::srgb(0.85, 0.85, 0.85);
+    const PRESS_COLOR: Color = Color::srgb(0.95, 0.95, 0.95);
+
+    for (interaction, mut background) in &mut buttons {
+        match interaction {
+            Interaction::Pressed => *background = PRESS_COLOR.into(),
+            Interaction::Hovered => *background = HOVER_COLOR.into(),
+            Interaction::None => *background = BACKGROUND_COLOR.into(),
+        };
+    }
+}
+
+fn show_turn_text(mut writer: TextUiWriter, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, TEXT_SECTION) = "Current turn: ".into();
+}
+
+fn show_turn_symbol(mut writer: TextUiWriter, turn_symbol: Res<TurnSymbol>, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, SYMBOL_SECTION) = turn_symbol.glyph().into();
+    *writer.color(*text_entity, SYMBOL_SECTION) = turn_symbol.color().into();
+}
+
+fn show_disconnected_text(mut writer: TextUiWriter, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, TEXT_SECTION) = "Disconnected".into();
+    writer.text(*text_entity, SYMBOL_SECTION).clear();
+}
+
+fn show_winner_text(mut writer: TextUiWriter, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, TEXT_SECTION) = "Winner: ".into();
+}
+
+fn show_tie_text(mut writer: TextUiWriter, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, TEXT_SECTION) = "Tie".into();
+    writer.text(*text_entity, SYMBOL_SECTION).clear();
+}
+
+fn show_connecting_text(mut writer: TextUiWriter, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, TEXT_SECTION) = "Connecting".into();
+}
+
+fn show_waiting_client_text(mut writer: TextUiWriter, text_entity: Single<Entity, With<BottomText>>) {
+    *writer.text(*text_entity, TEXT_SECTION) = "Waiting client".into();
 }
 
 /// Returns `true` if the local player can select cells.
-fn local_player_turn(current_turn: Res<CurrentTurn>, client: Res<RepliconClient>, players: Query<(&Player, &Symbol)>) -> bool {
-    let client_id = client.id().unwrap_or(ClientId::SERVER);
-    players
-        .iter()
-        .any(|(player, &symbol)| player.0 == client_id && symbol == current_turn.0)
-}
-
-/// A condition for systems to check if any component of type `T` was added to the world.
-fn any_component_added<T: Component>(components: Query<(), Added<T>>) -> bool {
-    !components.is_empty()
+fn local_player_turn(turn_symbol: Res<TurnSymbol>, players: Query<&Symbol, With<LocalPlayer>>) -> bool {
+    players.iter().any(|&symbol| symbol == **turn_symbol)
 }
 
 const PORT: u16 = 5000;
@@ -519,10 +562,10 @@ enum GameState {
 }
 
 /// Contains symbol to be used this turn.
-#[derive(Resource, Default, Deref)]
-struct CurrentTurn(Symbol);
+#[derive(Resource, Default, Deref, DerefMut)]
+struct TurnSymbol(Symbol);
 
-/// A component that defines the symbol of a player or a filled cell.
+/// A component that defines the symbol of a [`Player`], current [`TurnSymbol`] or a filled cell (see [`CellPick`]).
 #[derive(Clone, Component, Copy, Default, Deserialize, Eq, PartialEq, Serialize, ValueEnum)]
 enum Symbol {
     #[default]
@@ -566,60 +609,54 @@ impl fmt::Display for Symbol {
 #[derive(Component)]
 struct BottomText;
 
-/// Marker for UI node with cells.
+/// Cell location on the grid.
+///
+/// We want to replicate all cells, so we just set [`Replicated`] as a required component.
 #[derive(Component)]
-struct GridNode;
-
-#[derive(Bundle)]
-struct SymbolBundle {
-    symbol: Symbol,
-    cell_index: CellIndex,
-    replicated: Replicated,
+#[require(
+    Button,
+    Replicated,
+    BackgroundColor(|| BackgroundColor(BACKGROUND_COLOR)),
+    Node(|| Node {
+        width: Val::Px(BUTTON_SIZE),
+        height: Val::Px(BUTTON_SIZE),
+        margin: UiRect::all(Val::Px(BUTTON_MARGIN)),
+        ..Default::default()
+    })
+)]
+struct Cell {
+    index: usize,
 }
 
-impl SymbolBundle {
-    fn new(symbol: Symbol, index: usize) -> Self {
-        Self {
-            cell_index: CellIndex(index),
-            symbol,
-            replicated: Replicated,
-        }
-    }
-}
+/// Marker for a player entity.
+#[derive(Component, Default)]
+#[require(Replicated)]
+struct Player;
 
-/// Marks that the entity is a cell and contains its location in grid.
-#[derive(Component, Deserialize, Serialize)]
-struct CellIndex(usize);
+/// Marks [`Player`] as locally controlled.
+///
+/// Used to determine if player can place a symbol.
+///
+/// See also [`local_player_turn`].
+#[derive(Component)]
+#[require(Player)]
+struct LocalPlayer;
 
-/// Contains player ID and it's playing symbol.
-#[derive(Bundle)]
-struct PlayerBundle {
-    player: Player,
-    symbol: Symbol,
-    replicated: Replicated,
-}
-
-impl PlayerBundle {
-    fn new(client_id: ClientId, symbol: Symbol) -> Self {
-        Self {
-            player: Player(client_id),
-            symbol,
-            replicated: Replicated,
-        }
-    }
-
-    /// Same as [`Self::new`], but with [`ClientId::SERVER`].
-    fn server(symbol: Symbol) -> Self {
-        Self::new(ClientId::SERVER, symbol)
-    }
-}
-
-#[derive(Component, Serialize, Deserialize)]
-struct Player(ClientId);
-
-/// An event that indicates a symbol pick.
+/// A trigger that indicates a symbol pick.
 ///
 /// We don't replicate the whole UI, so we can't just send the picked entity because on server it may be different.
 /// So we send the cell location in grid and calculate the entity on server based on this.
 #[derive(Clone, Copy, Deserialize, Event, Serialize)]
-struct CellPick(usize);
+struct CellPick {
+    index: usize,
+}
+
+/// A trigger to send client cell entities to server to estabialize mappings for replication.
+///
+/// See [`client_start`] for details.
+#[derive(Event, Deref, Serialize, Deserialize)]
+struct MapCells(HashMap<usize, Entity>);
+
+/// A trigger that instructs the client to mark a specific entity as [`LocalPlayer`].
+#[derive(Event, Serialize, Deserialize)]
+struct MakeLocal;
