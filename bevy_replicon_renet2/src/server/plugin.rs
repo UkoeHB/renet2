@@ -1,14 +1,12 @@
-use std::{
-    error::Error,
-    fmt::{self, Display, Formatter},
-};
-
 #[cfg(feature = "netcode")]
 use crate::netcode::NetcodeServerPlugin;
 use crate::renet2::{RenetReceive, RenetSend, RenetServer, RenetServerPlugin};
 use bevy::prelude::*;
 use bevy_renet2::prelude::ServerEvent;
-use bevy_replicon::prelude::*;
+use bevy_replicon::{
+    core::connected_client::{ClientId, ClientIdMap},
+    prelude::*,
+};
 
 pub struct RepliconRenetServerPlugin;
 
@@ -20,15 +18,12 @@ impl Plugin for RepliconRenetServerPlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    (
-                        Self::set_running.run_if(resource_added::<RenetServer>),
-                        Self::set_stopped.run_if(resource_removed::<RenetServer>),
-                        Self::receive_packets.run_if(resource_exists::<RenetServer>),
-                    )
-                        .chain()
-                        .in_set(ServerSet::ReceivePackets),
-                    Self::forward_server_events.in_set(ServerSet::TriggerConnectionEvents),
-                ),
+                    Self::set_running.run_if(resource_added::<RenetServer>),
+                    Self::set_stopped.run_if(resource_removed::<RenetServer>),
+                    (Self::receive_packets, Self::forward_server_events).run_if(resource_exists::<RenetServer>),
+                )
+                    .chain()
+                    .in_set(ServerSet::ReceivePackets),
             )
             .add_systems(
                 PostUpdate,
@@ -51,58 +46,61 @@ impl RepliconRenetServerPlugin {
         server.set_running(false);
     }
 
-    fn forward_server_events(mut commands: Commands, mut renet_server_events: EventReader<ServerEvent>) {
-        for event in renet_server_events.read() {
+    fn forward_server_events(mut commands: Commands, mut server_events: EventReader<ServerEvent>, client_map: Res<ClientIdMap>) {
+        for event in server_events.read() {
             match event {
-                crate::renet2::ServerEvent::ClientConnected { client_id } => commands.trigger(ClientConnected {
-                    client_id: ClientId::new(*client_id),
-                }),
-                crate::renet2::ServerEvent::ClientDisconnected { client_id, reason } => {
-                    let reason = match reason {
-                        crate::renet2::DisconnectReason::DisconnectedByClient => DisconnectReason::DisconnectedByClient,
-                        crate::renet2::DisconnectReason::DisconnectedByServer => DisconnectReason::DisconnectedByServer,
-                        _ => Box::<BackendError>::from(RenetDisconnectReason(*reason)).into(),
-                    };
-                    commands.trigger(ClientDisconnected {
-                        client_id: ClientId::new(*client_id),
-                        reason,
-                    });
+                ServerEvent::ClientConnected { client_id } => {
+                    let client_id = ClientId::new(*client_id);
+                    const MAX_SIZE: usize = 1200; // From https://github.com/UkoeHB/renet2/blob/main/renet2/src/packet.rs#L7
+                    let client_entity = commands.spawn(ConnectedClient::new(client_id, MAX_SIZE)).id();
+                    debug!("connecting `{client_entity}` with `{client_id:?}`");
+                }
+                ServerEvent::ClientDisconnected { client_id, reason } => {
+                    let client_id = ClientId::new(*client_id);
+                    let client_entity = *client_map
+                      .get(&client_id)
+                      .expect("clients should be connected before disconnection");
+
+                    commands.entity(client_entity).despawn();
+                    debug!("disconnecting `{client_entity}` with `{client_id:?}`: {reason}");
                 }
             };
         }
     }
 
     fn receive_packets(
-        connected_clients: Res<ConnectedClients>,
         channels: Res<RepliconChannels>,
         mut renet_server: ResMut<RenetServer>,
         mut replicon_server: ResMut<RepliconServer>,
+        mut clients: Query<(Entity, &ConnectedClient, &mut NetworkStats)>,
     ) {
-        for connected in connected_clients.iter().copied() {
-            let renet_client_id = connected.id().get();
+        for (client_entity, client, mut stats) in &mut clients {
             for channel_id in 0..channels.client_channels().len() as u8 {
-                while let Some(message) = renet_server.receive_message(renet_client_id, channel_id) {
-                    replicon_server.insert_received(connected.id(), channel_id, message);
+                while let Some(message) = renet_server.receive_message(client.id().get(), channel_id) {
+                    replicon_server.insert_received(client_entity, channel_id, message);
                 }
+            }
+
+            // Renet events reading runs in parallel, so the client might have been disconnected.
+            if let Ok(info) = renet_server.network_info(client.id().get()) {
+                stats.rtt = info.rtt;
+                stats.packet_loss = info.packet_loss;
+                stats.sent_bps = info.bytes_sent_per_second;
+                stats.received_bps = info.bytes_received_per_second;
             }
         }
     }
 
-    fn send_packets(mut renet_server: ResMut<RenetServer>, mut replicon_server: ResMut<RepliconServer>) {
-        for (client_id, channel_id, message) in replicon_server.drain_sent() {
-            renet_server.send_message(client_id.get(), channel_id, message)
+    fn send_packets(
+        mut renet_server: ResMut<RenetServer>,
+        mut replicon_server: ResMut<RepliconServer>,
+        clients: Query<&ConnectedClient>,
+    ) {
+        for (client_entity, channel_id, message) in replicon_server.drain_sent() {
+            let client = clients
+              .get(client_entity)
+              .expect("messages should be sent only to connected clients");
+            renet_server.send_message(client.id().get(), channel_id, message)
         }
     }
 }
-
-/// A wrapper to implement [`Error`] for [`renet2::DisconnectReason`].
-///
-/// Temporary workaround until [this PR](https://github.com/lucaspoffo/renet/pull/170) is merged.
-#[derive(Debug)]
-pub struct RenetDisconnectReason(pub crate::renet2::DisconnectReason);
-impl Display for RenetDisconnectReason {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl Error for RenetDisconnectReason {}
