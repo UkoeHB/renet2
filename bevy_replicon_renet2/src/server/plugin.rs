@@ -54,7 +54,7 @@ impl RepliconRenetServerPlugin {
                     let client_entity = commands
                       .spawn((
                           ConnectedClient {
-                              // From https://github.com/lucaspoffo/renet/blob/master/renet/src/packet.rs#L7
+                              // From https://github.com/UkoeHB/renet2/blob/main/renet2/src/packet.rs#L7
                               max_size: 1200,
                           },
                           network_id,
