@@ -1,47 +1,106 @@
+use bevy::prelude::*;
 use bevy_renet2::prelude::{ChannelConfig, SendType};
-use bevy_replicon::prelude::{ChannelKind, RepliconChannel, RepliconChannels};
+use bevy_replicon::prelude::{Channel, RepliconChannels};
 
 //-------------------------------------------------------------------------------------------------------------------
 
 /// External trait for [`RepliconChannels`] to provide convenient conversion into renet2 channel configs.
 pub trait RenetChannelsExt {
-    /// Returns server channel configs that can be used to create [`ConnectionConfig`](renet2::ConnectionConfig).
-    fn get_server_configs(&self) -> Vec<ChannelConfig>;
+    /// Returns server channel configs that can be used to create [`ConnectionConfig`](crate::renet2::ConnectionConfig).
+    fn server_configs(&self) -> Vec<ChannelConfig>;
 
-    /// Same as [`RenetChannelsExt::get_server_configs`], but for clients.
-    fn get_client_configs(&self) -> Vec<ChannelConfig>;
+    /// Same as [`RenetChannelsExt::server_configs`], but for clients.
+    fn client_configs(&self) -> Vec<ChannelConfig>;
 }
 
 impl RenetChannelsExt for RepliconChannels {
-    fn get_server_configs(&self) -> Vec<ChannelConfig> {
-        create_configs(self.server_channels(), self.default_max_bytes)
+    /// Returns server channel configs that can be used to create [`ConnectionConfig`](crate::renet2::ConnectionConfig).
+    ///
+    /// - [`SendType::ReliableUnordered::resend_time`] and [`SendType::ReliableOrdered::resend_time`] will be
+    /// set to 300 ms.
+    /// - [`ChannelConfig::max_memory_usage_bytes`] will be set to `5 * 1024 * 1024`.
+    ///
+    /// You can configure these parameters after creation. However, do not change [`SendType`], as Replicon relies
+    /// on its defined delivery guarantees.
+    ///
+    /// # Examples
+    ///
+    /// Configure event channels using
+    /// [`RemoteEventRegistry`](bevy_replicon::shared::event::remote_event_registry::RemoteEventRegistry):
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_replicon::{prelude::*, shared::event::remote_event_registry::RemoteEventRegistry};
+    /// # use bevy_replicon_renet2::RenetChannelsExt;
+    /// # let channels = RepliconChannels::default();
+    /// # let registry = RemoteEventRegistry::default();
+    /// fn init(channels: Res<RepliconChannels>, event_registry: Res<RemoteEventRegistry>) {
+    ///     let mut server_configs = channels.server_configs();
+    ///     let fire_id = event_registry.server_channel::<Fire>().unwrap();
+    ///     let fire_channel = &mut server_configs[fire_id];
+    ///     fire_channel.max_memory_usage_bytes = 2048;
+    ///     // Use `server_configs` to create `RenetServer`.
+    /// }
+    ///
+    /// #[derive(Event)]
+    /// struct Fire;
+    /// ```
+    ///
+    /// Configure replication channels:
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_replicon::{prelude::*, shared::backend::replicon_channels::ReplicationChannel};
+    /// # use bevy_replicon_renet2::RenetChannelsExt;
+    /// # let channels = RepliconChannels::default();
+    /// let mut server_configs = channels.server_configs();
+    /// let channel = &mut server_configs[ReplicationChannel::Updates as usize];
+    /// channel.max_memory_usage_bytes = 4090;
+    /// ```
+    fn server_configs(&self) -> Vec<ChannelConfig> {
+        let channels = self.server_channels();
+        if channels.len() > u8::MAX as usize {
+            panic!("number of server channels shouldn't exceed `u8::MAX`");
+        }
+
+        create_configs(channels)
     }
 
-    fn get_client_configs(&self) -> Vec<ChannelConfig> {
-        create_configs(self.client_channels(), self.default_max_bytes)
+    fn client_configs(&self) -> Vec<ChannelConfig> {
+        let channels = self.client_channels();
+        if channels.len() > u8::MAX as usize {
+            panic!("number of client channels shouldn't exceed `u8::MAX`");
+        }
+
+        create_configs(channels)
     }
 }
 
 //-------------------------------------------------------------------------------------------------------------------
 
-/// Converts replicon channels into renet2 channel configs.
-fn create_configs(channels: &[RepliconChannel], default_max_bytes: usize) -> Vec<ChannelConfig> {
+use std::time::Duration;
+
+/// Converts Replicon channels into renet2 channel configs.
+fn create_configs(channels: &[Channel]) -> Vec<ChannelConfig> {
     let mut channel_configs = Vec::with_capacity(channels.len());
-    for (index, channel) in channels.iter().enumerate() {
-        let send_type = match channel.kind {
-            ChannelKind::Unreliable => SendType::Unreliable,
-            ChannelKind::Unordered => SendType::ReliableUnordered {
-                resend_time: channel.resend_time,
+    for (index, &channel) in channels.iter().enumerate() {
+        let send_type = match channel {
+            Channel::Unreliable => SendType::Unreliable,
+            Channel::Unordered => SendType::ReliableUnordered {
+                resend_time: Duration::from_millis(300),
             },
-            ChannelKind::Ordered => SendType::ReliableOrdered {
-                resend_time: channel.resend_time,
+            Channel::Ordered => SendType::ReliableOrdered {
+                resend_time: Duration::from_millis(300),
             },
         };
-        channel_configs.push(ChannelConfig {
+        let config = ChannelConfig {
             channel_id: index as u8,
-            max_memory_usage_bytes: channel.max_bytes.unwrap_or(default_max_bytes),
+            max_memory_usage_bytes: 5 * 1024 * 1024,
             send_type,
-        });
+        };
+
+        debug!("creating channel config `{config:?}`");
+        channel_configs.push(config);
     }
     channel_configs
 }

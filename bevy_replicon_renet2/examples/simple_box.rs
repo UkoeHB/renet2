@@ -43,7 +43,7 @@ impl Plugin for SimpleBoxPlugin {
     fn build(&self, app: &mut App) {
         app.replicate::<BoxPosition>()
             .replicate::<PlayerBox>()
-            .add_client_trigger::<MoveBox>(ChannelKind::Ordered)
+            .add_client_trigger::<MoveBox>(Channel::Ordered)
             .add_observer(spawn_clients)
             .add_observer(despawn_clients)
             .add_observer(apply_movement)
@@ -63,8 +63,8 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
         Cli::Server { port } => {
             info!("starting server at port {port}");
             let server = RenetServer::new(ConnectionConfig::from_channels(
-                channels.get_server_configs(),
-                channels.get_client_configs(),
+                channels.server_configs(),
+                channels.client_configs(),
             ));
 
             let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
@@ -95,7 +95,7 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
         Cli::Client { port, ip } => {
             info!("connecting to {ip}:{port}");
             let client = RenetClient::new(
-                ConnectionConfig::from_channels(channels.get_server_configs(), channels.get_client_configs()),
+                ConnectionConfig::from_channels(channels.server_configs(), channels.client_configs()),
                 false,
             );
 

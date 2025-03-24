@@ -69,7 +69,7 @@ impl RepliconRenetClientPlugin {
 
     fn send_packets(mut renet_client: ResMut<RenetClient>, mut replicon_client: ResMut<RepliconClient>) {
         for (channel_id, message) in replicon_client.drain_sent() {
-            renet_client.send_message(channel_id, message)
+            renet_client.send_message(channel_id as u8, message)
         }
     }
 }
