@@ -1,6 +1,6 @@
 [package]
 name = "bevy_replicon_renet2"
-version = "0.6.0"
+version = "0.7.0"
 authors = [
   "Hennadii Chernyshchyk <genaloner@gmail.com>",
   "koe <ukoe@protonmail.com>",
@@ -23,12 +23,12 @@ rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 
 [dependencies]
 bevy_replicon = { version = "0.32", default-features = false }
-bevy_renet2 = { path = "../bevy_renet2", version = "0.6.0", default-features = false }
+bevy_renet2 = { path = "../bevy_renet2", version = "0.7.0", default-features = false }
 bevy = { version = "0.15", default-features = false }
 
 [dev-dependencies]
 clap = { version = "4.1", features = ["derive"] }
-bevy_renet2 = { path = "../bevy_renet2", version = "0.6.0", features = ["native_transport"] }
+bevy_renet2 = { path = "../bevy_renet2", version = "0.7.0", features = ["native_transport"] }
 bevy = { version = "0.15", default-features = false, features = [
   "bevy_state",
   "bevy_text",

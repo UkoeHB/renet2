@@ -235,10 +235,3 @@ Check out [renet2_steam](https://github.com/UkoeHb/renet2/tree/main/renet2_steam
 Check out [renet2_visualizer](https://github.com/UkoeHb/renet2/tree/main/renet2_visualizer) for an egui plugin to plot metrics data from renet clients and servers:
 
 https://user-images.githubusercontent.com/35241085/175834010-b1eafd77-7ea2-47dc-a915-a399099c7a99.mp4
-
-## Bevy compatibility
-
-| bevy | renet2 |
-|------|-------------------|
-| 0.15 | [0.0.7](https://github.com/UkoeHB/renet2/releases/tag/0.0.7)         |
-| 0.14 | [0.0.5](https://github.com/UkoeHB/renet2/releases/tag/0.0.5)         |

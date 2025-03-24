@@ -46,27 +46,27 @@ impl RepliconRenetServerPlugin {
         server.set_running(false);
     }
 
-    fn forward_server_events(mut commands: Commands, mut server_events: EventReader<ServerEvent>, network_map: Res<NetworkIdMap>,) {
+    fn forward_server_events(mut commands: Commands, mut server_events: EventReader<ServerEvent>, network_map: Res<NetworkIdMap>) {
         for event in server_events.read() {
             match event {
                 ServerEvent::ClientConnected { client_id } => {
                     let network_id = NetworkId::new(*client_id);
                     let client_entity = commands
-                      .spawn((
-                          ConnectedClient {
-                              // From https://github.com/UkoeHB/renet2/blob/main/renet2/src/packet.rs#L7
-                              max_size: 1200,
-                          },
-                          network_id,
-                      ))
-                      .id();
+                        .spawn((
+                            ConnectedClient {
+                                // From https://github.com/UkoeHB/renet2/blob/main/renet2/src/packet.rs#L7
+                                max_size: 1200,
+                            },
+                            network_id,
+                        ))
+                        .id();
                     debug!("connecting `{client_entity}` with `{network_id:?}`");
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     let network_id = NetworkId::new(*client_id);
                     let client_entity = *network_map
-                      .get(&network_id)
-                      .expect("clients should be connected before disconnection");
+                        .get(&network_id)
+                        .expect("clients should be connected before disconnection");
 
                     commands.entity(client_entity).despawn();
                     debug!("disconnecting `{client_entity}` with `{network_id:?}`: {reason}");
@@ -83,12 +83,8 @@ impl RepliconRenetServerPlugin {
     ) {
         for (client_entity, network_id, mut stats) in &mut clients {
             for channel_id in 0..channels.client_channels().len() as u8 {
-                while let Some(message) = renet_server.receive_message(network_id.get(), channel_id)
-                {
-                    trace!(
-                        "forwarding {} received bytes over channel {channel_id}",
-                        message.len()
-                    );
+                while let Some(message) = renet_server.receive_message(network_id.get(), channel_id) {
+                    trace!("forwarding {} received bytes over channel {channel_id}", message.len());
                     replicon_server.insert_received(client_entity, channel_id, message);
                 }
             }
@@ -103,19 +99,12 @@ impl RepliconRenetServerPlugin {
         }
     }
 
-    fn send_packets(
-        mut renet_server: ResMut<RenetServer>,
-        mut replicon_server: ResMut<RepliconServer>,
-        clients: Query<&NetworkId>,
-    ) {
+    fn send_packets(mut renet_server: ResMut<RenetServer>, mut replicon_server: ResMut<RepliconServer>, clients: Query<&NetworkId>) {
         for (client_entity, channel_id, message) in replicon_server.drain_sent() {
-            trace!(
-                "forwarding {} sent bytes over channel {channel_id}",
-                message.len()
-            );
+            trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
             let network_id = clients
-              .get(client_entity)
-              .expect("messages should be sent only to connected clients");
+                .get(client_entity)
+                .expect("messages should be sent only to connected clients");
             renet_server.send_message(network_id.get(), channel_id as u8, message)
         }
     }
