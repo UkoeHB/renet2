@@ -50,9 +50,9 @@ impl Plugin for TicTacToePlugin {
             .init_resource::<SymbolFont>()
             .init_resource::<TurnSymbol>()
             .replicate::<Symbol>()
-            .add_client_trigger::<CellPick>(ChannelKind::Ordered)
-            .add_client_trigger::<MapCells>(ChannelKind::Ordered)
-            .add_server_trigger::<MakeLocal>(ChannelKind::Ordered)
+            .add_client_trigger::<CellPick>(Channel::Ordered)
+            .add_client_trigger::<MapCells>(Channel::Ordered)
+            .add_server_trigger::<MakeLocal>(Channel::Ordered)
             .insert_resource(ClearColor(BACKGROUND_COLOR))
             .add_observer(disconnect_by_client)
             .add_observer(init_client)
@@ -111,8 +111,8 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
         Cli::Server { port, symbol } => {
             info!("starting server as {symbol} at port {port}");
             let server = RenetServer::new(ConnectionConfig::from_channels(
-                channels.get_server_configs(),
-                channels.get_client_configs(),
+                channels.server_configs(),
+                channels.client_configs(),
             ));
 
             let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
@@ -134,7 +134,7 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
         Cli::Client { port, ip } => {
             info!("connecting to {ip}:{port}");
             let client = RenetClient::new(
-                ConnectionConfig::from_channels(channels.get_server_configs(), channels.get_client_configs()),
+                ConnectionConfig::from_channels(channels.server_configs(), channels.client_configs()),
                 false,
             );
 

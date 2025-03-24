@@ -97,7 +97,7 @@ fn server_event() {
             }),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<DummyEvent>(ChannelKind::Ordered)
+        .add_server_event::<DummyEvent>(Channel::Ordered)
         .finish();
     }
 
@@ -128,7 +128,7 @@ fn client_event() {
             }),
             RepliconRenetPlugins,
         ))
-        .add_client_event::<DummyEvent>(ChannelKind::Ordered)
+        .add_client_event::<DummyEvent>(Channel::Ordered)
         .finish();
     }
 
@@ -154,7 +154,7 @@ fn setup_client(app: &mut App, client_id: u64, port: u16) {
     let channels = app.world().resource::<RepliconChannels>();
 
     let server_channels_config = channels.get_server_configs();
-    let client_channels_config = channels.get_client_configs();
+    let client_channels_config = channels.client_configs();
 
     let client = RenetClient::new(
         ConnectionConfig::from_channels(server_channels_config, client_channels_config),
@@ -169,7 +169,7 @@ fn setup_server(app: &mut App, max_clients: usize) -> u16 {
     let channels = app.world().resource::<RepliconChannels>();
 
     let server_channels_config = channels.get_server_configs();
-    let client_channels_config = channels.get_client_configs();
+    let client_channels_config = channels.client_configs();
 
     let server = RenetServer::new(ConnectionConfig::from_channels(server_channels_config, client_channels_config));
     let transport = create_server_transport(max_clients);
