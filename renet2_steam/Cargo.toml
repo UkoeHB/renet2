@@ -1,6 +1,6 @@
 [package]
 name = "renet2_steam"
-version = "0.7.0"
+version = "0.8.0"
 keywords = ["gamedev", "networking", "transport"]
 description = "steam transport for the renet2 crate"
 repository = "https://github.com/UkoeHB/renet2"
@@ -17,7 +17,7 @@ rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
-renet2 = { path = "../renet2", version = "0.7.0" }
+renet2 = { path = "../renet2", version = "0.8.0" }
 steamworks = "0.11"
 log = "0.4.19"
 bevy_ecs = { version = "0.15", optional = true }
