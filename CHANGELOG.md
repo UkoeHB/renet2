@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 0.8.0 - 04/05/25
+
+- Update `wtransport` to v0.6 in `renet2_netcode`.
+
+## 0.7.0 - 03/24/25
+
+- Update `bevy_replicon` to v0.32.
+
 ## 0.6.0 - 03/23/25
 
 - Update `bevy_replicon` to v0.31.
