@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.8.1 - 04/08/25
+
+- Set upper bound of range of Firefox versions where webtransport was not fully supported (broken range: v133 - v135).
+
 ## 0.8.0 - 04/05/25
 
 - Update `wtransport` to v0.6 in `renet2_netcode`.
