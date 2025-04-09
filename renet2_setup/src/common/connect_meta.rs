@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{connect_token_to_bytes, ConnectionType, GameServerSetupConfig, ServerConnectToken};
+use crate::{connect_token_to_bytes, ConnectionType, ServerConnectToken};
 
 //-------------------------------------------------------------------------------------------------------------------
 
@@ -14,7 +14,9 @@ use crate::{connect_token_to_bytes, ConnectionType, GameServerSetupConfig, Serve
 #[cfg(feature = "memory_transport")]
 #[derive(Debug, Clone)]
 pub struct ConnectMetaMemory {
-    pub server_config: GameServerSetupConfig,
+    pub protocol_id: u64,
+    pub expire_secs: u64,
+    pub timeout_secs: i32,
     pub clients: Vec<renet2_netcode::MemorySocketClient>,
     pub socket_id: u8,
     pub auth_key: [u8; 32],
@@ -29,10 +31,10 @@ impl ConnectMetaMemory {
     pub fn new_connect_token(&self, current_time: Duration, client_id: u64) -> Result<ServerConnectToken, String> {
         let token = ConnectToken::generate(
             current_time,
-            self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.protocol_id,
+            self.expire_secs,
             client_id,
-            self.server_config.timeout_secs,
+            self.timeout_secs,
             self.socket_id,
             vec![renet2_netcode::in_memory_server_addr()],
             None,
@@ -61,7 +63,9 @@ pub struct ConnectMetaMemory;
 /// Metadata required to generate connect tokens for native-target clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectMetaNative {
-    pub server_config: GameServerSetupConfig,
+    pub protocol_id: u64,
+    pub expire_secs: u64,
+    pub timeout_secs: i32,
     pub server_addresses: Vec<SocketAddr>,
     pub socket_id: u8,
     pub auth_key: [u8; 32],
@@ -73,7 +77,9 @@ impl ConnectMetaNative {
         auth_key[0] = 1;
 
         Self {
-            server_config: GameServerSetupConfig::dummy(),
+            protocol_id: 0u64,
+            expire_secs: 10u64,
+            timeout_secs: 15,
             server_addresses: vec![SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080u16))],
             socket_id: 0,
             auth_key,
@@ -84,10 +90,10 @@ impl ConnectMetaNative {
     pub fn new_connect_token(&self, current_time: Duration, client_id: u64) -> Result<ServerConnectToken, String> {
         let token = ConnectToken::generate(
             current_time,
-            self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.protocol_id,
+            self.expire_secs,
             client_id,
-            self.server_config.timeout_secs,
+            self.timeout_secs,
             self.socket_id,
             self.server_addresses.clone(),
             None,
@@ -105,10 +111,13 @@ impl ConnectMetaNative {
 /// Metadata required to generate connect tokens for wasm-target webtransport clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectMetaWasmWt {
-    pub server_config: GameServerSetupConfig,
+    pub protocol_id: u64,
+    pub expire_secs: u64,
+    pub timeout_secs: i32,
     pub server_addresses: Vec<SocketAddr>,
     pub socket_id: u8,
     pub auth_key: [u8; 32],
+    /// If PKI certs are used instead of certificate hashes then this vec should be empty.
     pub cert_hashes: Vec<ServerCertHash>,
 }
 
@@ -117,10 +126,10 @@ impl ConnectMetaWasmWt {
     pub fn new_connect_token(&self, current_time: Duration, client_id: u64) -> Result<ServerConnectToken, String> {
         let token = ConnectToken::generate(
             current_time,
-            self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.protocol_id,
+            self.expire_secs,
             client_id,
-            self.server_config.timeout_secs,
+            self.timeout_secs,
             self.socket_id,
             self.server_addresses.clone(),
             None,
@@ -142,7 +151,9 @@ impl ConnectMetaWasmWt {
 /// Metadata required to generate connect tokens for wasm-target websocket clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectMetaWasmWs {
-    pub server_config: GameServerSetupConfig,
+    pub protocol_id: u64,
+    pub expire_secs: u64,
+    pub timeout_secs: i32,
     pub server_addresses: Vec<SocketAddr>,
     pub socket_id: u8,
     pub auth_key: [u8; 32],
@@ -154,10 +165,10 @@ impl ConnectMetaWasmWs {
     pub fn new_connect_token(&self, current_time: Duration, client_id: u64) -> Result<ServerConnectToken, String> {
         let token = ConnectToken::generate(
             current_time,
-            self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.protocol_id,
+            self.expire_secs,
             client_id,
-            self.server_config.timeout_secs,
+            self.timeout_secs,
             self.socket_id,
             self.server_addresses.clone(),
             None,
@@ -201,7 +212,22 @@ impl ConnectMetas {
                 meta.new_connect_token(current_time, client_id)
                     .map_err(|err| format!("failed constructing native connect token: {err:?}"))
             }
-            ConnectionType::WasmWt => {
+            ConnectionType::WasmWtPkiCerts => {
+                // Clients that request webtransport can fall back to websockets.
+                match (&self.wasm_wt, &self.wasm_ws) {
+                    // If cert hashes are set then this client can't connect to it.
+                    (Some(meta), _) if meta.cert_hashes.len() > 0 => {
+                        meta.new_connect_token(current_time, client_id)
+                            .map_err(|err| format!("failed constructing wasm wt connect token for wasm client: {err:?}"))
+                    }
+                    (_, Some(meta)) => {
+                        meta.new_connect_token(current_time, client_id)
+                            .map_err(|err| format!("failed constructing wasm ws connect token for wasm client: {err:?}"))
+                    }
+                    _ => Err(format!("no wasm webtransport connect meta for wasm client"))
+                }
+            }
+            ConnectionType::WasmWtCertHashes => {
                 // Clients that request webtransport can fall back to websockets.
                 if let Some(meta) = &self.wasm_wt {
                     meta.new_connect_token(current_time, client_id)

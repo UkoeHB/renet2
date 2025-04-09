@@ -9,8 +9,13 @@ pub enum ConnectionType {
     Memory,
     /// Use this when the client is non-WASM.
     Native,
+    /// Use this when the client is WASM and webtransport is supported but cert hashes are not supported.
+    /// 
+    /// If the server is given web PKI certificates then the client will connect via webtransport, otherwise it will fall
+    /// back to websockets.
+    WasmWtPkiCerts,
     /// Use this when the client is WASM and webtransport with cert hashes is supported.
-    WasmWt,
+    WasmWtCertHashes,
     /// Use this when the client is WASM and webtransport is not supported.
     WasmWs,
 }
@@ -28,8 +33,11 @@ impl ConnectionType {
         #[cfg(all(target_family = "wasm", feature = "wt_client_transport"))]
         {
             match renet2_netcode::webtransport_is_available_with_cert_hashes() {
-                true => ConnectionType::WasmWt,
-                false => ConnectionType::WasmWs,
+                true => ConnectionType::WasmWtCertHashes,
+                false => match renet2_netcode::webtransport_is_available() {
+                    true => ConnectionType::WasmWtPkiCerts,
+                    false => ConnectionType::WasmWs,
+                }
             }
         }
 
