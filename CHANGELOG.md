@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## WIP
+
+- Remove `/ws` path from websocket URLs.
+
 ## 0.8.1 - 04/08/25
 
 - Set upper bound of range of Firefox versions where webtransport was not fully supported (broken range: v133 - v135).

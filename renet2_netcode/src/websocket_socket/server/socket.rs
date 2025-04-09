@@ -232,7 +232,7 @@ impl WebSocketServer {
 
     /// Gets the server's local URL.
     ///
-    /// The URL will have the format `{ws|wss}://[ip:port]/ws`.
+    /// The URL will have the format `{ws|wss}://[ip:port]`.
     ///
     /// The local URL likely differs from the public URL of the server due to NAT. The client should
     /// connect to the public URL, either by swapping the IP of this method's url for the public IP of your server
@@ -700,7 +700,7 @@ fn extract_client_connection_req(uri: &Uri) -> Result<Vec<u8>, Error> {
     Ok(connection_req.into())
 }
 
-/// Makes a websocket url: `{ws, wss}://[ip:port]/ws`.
+/// Makes a websocket url: `{ws, wss}://[ip:port]`.
 fn make_websocket_url(with_tls: bool, address: SocketAddr) -> Result<url::Url, ()> {
     let mut url = url::Url::parse("https://example.net").map_err(|_| ())?;
     let scheme = match with_tls {
@@ -710,6 +710,5 @@ fn make_websocket_url(with_tls: bool, address: SocketAddr) -> Result<url::Url, (
     url.set_scheme(scheme)?;
     url.set_ip_host(address.ip())?;
     url.set_port(Some(address.port()))?;
-    url.set_path("/ws");
     Ok(url)
 }

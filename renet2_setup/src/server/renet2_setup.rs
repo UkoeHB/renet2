@@ -9,7 +9,7 @@ use super::ClientCounts;
 
 //-------------------------------------------------------------------------------------------------------------------
 
-/// Makes a websocket url: `{ws, wss}://[{ip, domain}:port]/ws`.
+/// Makes a websocket url: `{ws, wss}://[{ip, domain}:port]`.
 #[cfg(feature = "ws_server_transport")]
 fn make_websocket_url(with_tls: bool, ip: std::net::IpAddr, port: u16, maybe_domain: Option<String>) -> Result<url::Url, url::ParseError> {
     let mut url = url::Url::parse("https://example.net")?;
@@ -23,7 +23,6 @@ fn make_websocket_url(with_tls: bool, ip: std::net::IpAddr, port: u16, maybe_dom
         None => url.set_ip_host(ip).map_err(|_| url::ParseError::InvalidIpv4Address)?,
     }
     url.set_port(Some(port)).map_err(|_| url::ParseError::InvalidPort)?;
-    url.set_path("/ws");
     Ok(url)
 }
 
@@ -206,10 +205,10 @@ fn add_wasm_ws_socket(
         use enfync::AdoptOrDefault;
         use renet2_netcode::ServerSocket;
         let acceptor = config.get_ws_acceptor()?;
-        let wildcard_addr = SocketAddr::new(config.server_ip, config.wasm_ws_port);
+        let listen = SocketAddr::new(config.server_ip, config.wasm_ws_port);
         let ws_config = renet2_netcode::WebSocketServerConfig {
             acceptor,
-            listen: wildcard_addr,
+            listen,
             max_clients: count,
         };
         let handle = enfync::builtin::native::TokioHandle::adopt_or_default(); //todo: don't depend on tokio...

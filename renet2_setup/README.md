@@ -8,7 +8,7 @@ Provides utilities for setting up `renet2` servers and clients.
     - Clients can send the server their preferred `ConnectionType` to aid in this (see the client workflow below).
 1. Make a `ConnectionConfig` with the channels for your renet2 connection with clients.
     - This should match the `ConnectionConfig` used by your clients.
-    - If using the `bevy_replicon_renet2` crate, then the channels can be obtained from `RepliconChannels`. Use `ConnectionConfigs::from_channels`.
+    - If using the `bevy_replicon_renet2` crate, then you must obtain replicon-specific channels from `RepliconChannels`. Other channels must be constructed separately. Use `ConnectionConfigs::from_channels`.
 1. Call `setup_combo_renet2_server` to get `RenetServer`, `NetcodeServerTransport`, and `ConnectMetas`.
     - If using the `bevy` feature, call `setup_combo_renet2_server_in_bevy` instead.
 1. Drive the `RenetServer` and `NetcodeServerTransport` forward.
@@ -45,7 +45,7 @@ A default `tokio` runtime is set up if a server needs webtransport or websockets
 1. Make a connect pack with `ClientConnectPack::new`.
 1. Make a `ConnectionConfig` with the channels for your renet2 connection with the server.
     - This should match the `ConnectionConfig` used by the server.
-    - If using the `bevy_replicon_renet2` crate, then the channels can be obtained from `RepliconChannels`. Use `ConnectionConfigs::from_channels`.
+    - If using the `bevy_replicon_renet2` crate, then you must obtain replicon-specific channels from `RepliconChannels`. Other channels must be constructed separately. Use `ConnectionConfigs::from_channels`.
 1. Call `setup_renet2_client` to get `RenetClient` and `NetcodeClientTransport`.
     - If using the `bevy` feature, call `setup_renet2_client_in_bevy` instead.
 1. Drive the `RenetClient` and `NetcodeClientTransport` forward.
