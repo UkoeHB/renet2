@@ -100,7 +100,7 @@ impl GameServerSetupConfig {
             return Ok(renet2_netcode::WebSocketAcceptor::NativeTls(config.into()));
         }
 
-        #[cfg(feature = "ws-rustls")]
+        #[cfg(all(feature = "ws-rustls", not(feature = "ws-native-tls")))]
         {
             let config = Self::get_rustls_server_config(cert_chain, privkey)?;
             return Ok(renet2_netcode::WebSocketAcceptor::Rustls(config.into()));

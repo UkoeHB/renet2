@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 ///
 /// Implements `Resource` when the `bevy` feature is enabled.
 #[derive(Debug)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::system::Resource))]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub enum ClientConnectPack {
     /// Connection information for native transports.
     ///

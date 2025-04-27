@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.9.1 - 04/27/25
+
+- Fix compile error with `bevy` Resource derives.
+
 ## 0.9.0 - 04/27/25
 
 - Remove `/ws` path from websocket URLs.
