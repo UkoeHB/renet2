@@ -28,7 +28,7 @@ url = { version = "2.4" }
 renet2 = {path = "../renet2", version = "0.8.1", default-features = false}
 renet2_netcode = {path = "../renet2_netcode", version = "0.8.1", optional = true, default-features = false, features = ["serde"]}
 
-bevy_ecs = { version = "0.15", optional = true }
+bevy_ecs = { version = "0.16", optional = true }
 enfync = { version = "0.1", default-features = false, optional = true }
 rustls = { version = "0.23", optional = true }
 rustls-pki-types = { version = "1.7", optional = true }

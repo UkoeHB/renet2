@@ -127,7 +127,7 @@ pub enum RenetConnectionStatus {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::system::Resource))]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct RenetClient {
     has_reliable_socket: bool,
     packet_sequence: u64,

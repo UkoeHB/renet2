@@ -49,7 +49,7 @@ impl RenetServerPlugin {
 
     pub fn emit_server_events_system(mut server: ResMut<RenetServer>, mut server_events: EventWriter<ServerEvent>) {
         while let Some(event) = server.get_event() {
-            server_events.send(event);
+            server_events.write(event);
         }
     }
 }

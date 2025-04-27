@@ -57,11 +57,11 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
 
     match *cli {
         Cli::SinglePlayer => {
-            info!("starting single-player game");
+            log::info!("starting single-player game");
             commands.spawn((PlayerBox { color: GREEN.into() }, BoxOwner(SERVER)));
         }
         Cli::Server { port } => {
-            info!("starting server at port {port}");
+            log::info!("starting server at port {port}");
             let server = RenetServer::new(ConnectionConfig::from_channels(
                 channels.server_configs(),
                 channels.client_configs(),
@@ -93,7 +93,7 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
             commands.spawn((PlayerBox { color: GREEN.into() }, BoxOwner(SERVER)));
         }
         Cli::Client { port, ip } => {
-            info!("connecting to {ip}:{port}");
+            log::info!("connecting to {ip}:{port}");
             let client = RenetClient::new(
                 ConnectionConfig::from_channels(channels.server_configs(), channels.client_configs()),
                 false,
@@ -137,7 +137,7 @@ fn spawn_camera(mut commands: Commands) {
 fn spawn_clients(trigger: Trigger<OnAdd, ConnectedClient>, mut commands: Commands) {
     // Hash index to generate visually distinctive color.
     let mut hasher = DefaultHasher::new();
-    trigger.entity().index().hash(&mut hasher);
+    trigger.target().index().hash(&mut hasher);
     let hash = hasher.finish();
 
     // Use the lower 24 bits.
@@ -147,12 +147,12 @@ fn spawn_clients(trigger: Trigger<OnAdd, ConnectedClient>, mut commands: Command
     let b = (hash & 0xFF) as f32 / 255.0;
 
     // Generate pseudo random color from client entity.
-    info!("spawning box for `{}`", trigger.entity());
+    log::info!("spawning box for `{}`", trigger.target());
     commands.spawn((
         PlayerBox {
             color: Color::srgb(r, g, b),
         },
-        BoxOwner(trigger.entity()),
+        BoxOwner(trigger.target()),
     ));
 }
 
@@ -160,7 +160,7 @@ fn spawn_clients(trigger: Trigger<OnAdd, ConnectedClient>, mut commands: Command
 fn despawn_clients(trigger: Trigger<OnRemove, ConnectedClient>, mut commands: Commands, boxes: Query<(Entity, &BoxOwner)>) {
     let (entity, _) = boxes
         .iter()
-        .find(|(_, &owner)| *owner == trigger.entity())
+        .find(|(_, &owner)| *owner == trigger.target())
         .expect("all clients should have entities");
     commands.entity(entity).despawn();
 }
@@ -192,7 +192,7 @@ fn read_input(mut commands: Commands, input: Res<ButtonInput<KeyCode>>) {
 /// But this example just demonstrates simple replication concept.
 fn apply_movement(trigger: Trigger<FromClient<MoveBox>>, time: Res<Time>, mut boxes: Query<(&BoxOwner, &mut BoxPosition)>) {
     const MOVE_SPEED: f32 = 300.0;
-    info!("received movement from `{}`", trigger.client_entity);
+    log::info!("received movement from `{}`", trigger.client_entity);
 
     // Find the sender entity. We don't include the entity as a trigger target to save traffic, since the server knows
     // which entity to apply the input to. We could have a resource that maps connected clients to controlled entities,

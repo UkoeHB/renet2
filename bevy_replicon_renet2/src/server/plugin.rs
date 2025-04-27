@@ -60,7 +60,7 @@ impl RepliconRenetServerPlugin {
                             network_id,
                         ))
                         .id();
-                    debug!("connecting `{client_entity}` with `{network_id:?}`");
+                    log::debug!("connecting `{client_entity}` with `{network_id:?}`");
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     let network_id = NetworkId::new(*client_id);
@@ -69,7 +69,7 @@ impl RepliconRenetServerPlugin {
                         .expect("clients should be connected before disconnection");
 
                     commands.entity(client_entity).despawn();
-                    debug!("disconnecting `{client_entity}` with `{network_id:?}`: {reason}");
+                    log::debug!("disconnecting `{client_entity}` with `{network_id:?}`: {reason}");
                 }
             };
         }
@@ -84,7 +84,7 @@ impl RepliconRenetServerPlugin {
         for (client_entity, network_id, mut stats) in &mut clients {
             for channel_id in 0..channels.client_channels().len() as u8 {
                 while let Some(message) = renet_server.receive_message(network_id.get(), channel_id) {
-                    trace!("forwarding {} received bytes over channel {channel_id}", message.len());
+                    log::trace!("forwarding {} received bytes over channel {channel_id}", message.len());
                     replicon_server.insert_received(client_entity, channel_id, message);
                 }
             }
@@ -101,7 +101,7 @@ impl RepliconRenetServerPlugin {
 
     fn send_packets(mut renet_server: ResMut<RenetServer>, mut replicon_server: ResMut<RepliconServer>, clients: Query<&NetworkId>) {
         for (client_entity, channel_id, message) in replicon_server.drain_sent() {
-            trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
+            log::trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
             let network_id = clients
                 .get(client_entity)
                 .expect("messages should be sent only to connected clients");

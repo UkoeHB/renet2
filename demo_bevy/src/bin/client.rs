@@ -9,7 +9,6 @@ use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_renet2::prelude::{ClientId, RenetClient, RenetClientPlugin};
 use demo_bevy::{setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages};
 use renet2_visualizer::{RenetClientVisualizer, RenetVisualizerStyle};
-use smooth_bevy_cameras::{LookTransform, LookTransformBundle, LookTransformPlugin, Smoother};
 
 #[derive(Component)]
 struct ControlledPlayer;
@@ -123,10 +122,11 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins);
     app.add_plugins(RenetClientPlugin);
-    app.add_plugins(LookTransformPlugin);
-    app.add_plugins(FrameTimeDiagnosticsPlugin);
+    app.add_plugins(FrameTimeDiagnosticsPlugin::default());
     app.add_plugins(LogDiagnosticsPlugin::default());
-    app.add_plugins(EguiPlugin);
+    app.add_plugins(EguiPlugin {
+        enable_multipass_for_primary_context: false,
+    });
 
     #[cfg(feature = "netcode")]
     add_netcode_network(&mut app);
@@ -183,8 +183,8 @@ fn player_input(
     player_input.down = keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown);
 
     if mouse_button_input.just_pressed(MouseButton::Left) {
-        let target_transform = target_query.single();
-        player_commands.send(PlayerCommand::BasicAttack {
+        let target_transform = target_query.single().unwrap();
+        player_commands.write(PlayerCommand::BasicAttack {
             cast_at: target_transform.translation,
         });
     }
@@ -286,9 +286,9 @@ fn update_target_system(
     mut target_query: Query<&mut Transform, With<Target>>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
 ) {
-    let (camera, camera_transform) = camera_query.single();
-    let mut target_transform = target_query.single_mut();
-    if let Some(cursor_pos) = primary_window.single().cursor_position() {
+    let (camera, camera_transform) = camera_query.single().unwrap();
+    let mut target_transform = target_query.single_mut().unwrap();
+    if let Some(cursor_pos) = primary_window.single().unwrap().cursor_position() {
         if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
             if let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Dir3::Y)) {
                 target_transform.translation = ray.direction * distance + ray.origin;
@@ -298,19 +298,10 @@ fn update_target_system(
 }
 
 fn setup_camera(mut commands: Commands) {
-    commands
-        .spawn(LookTransformBundle {
-            transform: LookTransform {
-                eye: Vec3::new(0.0, 8., 2.5),
-                target: Vec3::new(0.0, 0.5, 0.0),
-                up: Vec3::Y,
-            },
-            smoother: Smoother::new(0.9),
-        })
-        .insert((
-            Camera3d::default(),
-            Transform::from_xyz(0., 8.0, 2.5).looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
-        ));
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0., 8.0, 2.5).looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
+    ));
 }
 
 fn setup_target(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
@@ -324,13 +315,17 @@ fn setup_target(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut ma
 }
 
 fn camera_follow(
-    mut camera_query: Query<&mut LookTransform, (With<Camera>, Without<ControlledPlayer>)>,
+    time: Res<Time>,
+    mut camera_query: Query<&mut Transform, (With<Camera>, Without<ControlledPlayer>)>,
     player_query: Query<&Transform, With<ControlledPlayer>>,
 ) {
-    let mut cam_transform = camera_query.single_mut();
-    if let Ok(player_transform) = player_query.get_single() {
-        cam_transform.eye.x = player_transform.translation.x;
-        cam_transform.eye.z = player_transform.translation.z + 2.5;
-        cam_transform.target = player_transform.translation;
+    let mut cam_transform = camera_query.single_mut().unwrap();
+    if let Ok(player_transform) = player_query.single() {
+        let eye = Vec3::new(player_transform.translation.x, 8., player_transform.translation.z + 2.5);
+        if eye.distance(cam_transform.translation) > 10.0 {
+            cam_transform.translation = eye;
+        } else {
+            cam_transform.translation.smooth_nudge(&eye, 8.0, time.delta_secs());
+        }
     }
 }

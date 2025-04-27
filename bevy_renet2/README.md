@@ -123,6 +123,7 @@ If you want a more complex example you can checkout the [demo_bevy](https://gith
 
 ## Bevy Compatibility
 
-|bevy|bevy_renet2|
-|----|-----------|
-|0.15|0.0.7 - 0.7|
+|bevy|bevy_renet2  |
+|----|-------------|
+|0.16|0.9.0 -      |
+|0.15|0.0.7 - 0.8.1|

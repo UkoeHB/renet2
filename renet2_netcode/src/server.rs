@@ -37,7 +37,7 @@ impl BoxedSocket {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::system::Resource))]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct NetcodeServerTransport {
     sockets: Vec<Box<dyn ServerSocket>>,
     netcode_server: NetcodeServer,

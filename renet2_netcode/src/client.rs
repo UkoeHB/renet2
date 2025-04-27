@@ -7,7 +7,7 @@ use renet2::{ClientId, RenetClient};
 use super::{ClientSocket, NetcodeTransportError};
 
 #[derive(Debug)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::system::Resource))]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct NetcodeClientTransport {
     socket: Box<dyn ClientSocket>,
     netcode_client: NetcodeClient,

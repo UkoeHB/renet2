@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_renet2::prelude::{ChannelConfig, SendType};
 use bevy_replicon::prelude::{Channel, RepliconChannels};
+use std::time::Duration;
 
 //-------------------------------------------------------------------------------------------------------------------
 
@@ -78,8 +79,6 @@ impl RenetChannelsExt for RepliconChannels {
 
 //-------------------------------------------------------------------------------------------------------------------
 
-use std::time::Duration;
-
 /// Converts Replicon channels into renet2 channel configs.
 fn create_configs(channels: &[Channel]) -> Vec<ChannelConfig> {
     let mut channel_configs = Vec::with_capacity(channels.len());
@@ -99,7 +98,7 @@ fn create_configs(channels: &[Channel]) -> Vec<ChannelConfig> {
             send_type,
         };
 
-        debug!("creating channel config `{config:?}`");
+        log::debug!("creating channel config `{config:?}`");
         channel_configs.push(config);
     }
     channel_configs

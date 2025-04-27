@@ -8,7 +8,7 @@ use std::{
     time::SystemTime,
 };
 
-use bevy::{prelude::*, utils::hashbrown::HashMap};
+use bevy::{platform::collections::HashMap, prelude::*};
 use bevy_renet2::netcode::{NativeSocket, ServerSetupConfig};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{
@@ -102,14 +102,14 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
 
     match *cli {
         Cli::Hotseat => {
-            info!("starting hotseat");
+            log::info!("starting hotseat");
             // Set all players to server to play from a single machine and start the game right away.
             commands.spawn((LocalPlayer, Symbol::Cross));
             commands.spawn((LocalPlayer, Symbol::Nought));
             commands.set_state(GameState::InGame);
         }
         Cli::Server { port, symbol } => {
-            info!("starting server as {symbol} at port {port}");
+            log::info!("starting server as {symbol} at port {port}");
             let server = RenetServer::new(ConnectionConfig::from_channels(
                 channels.server_configs(),
                 channels.client_configs(),
@@ -132,7 +132,7 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
             commands.spawn((LocalPlayer, symbol));
         }
         Cli::Client { port, ip } => {
-            info!("connecting to {ip}:{port}");
+            log::info!("connecting to {ip}:{port}");
             let client = RenetClient::new(
                 ConnectionConfig::from_channels(channels.server_configs(), channels.client_configs()),
                 false,
@@ -278,10 +278,10 @@ fn pick_cell(
         return;
     }
 
-    let cell = cells.get(trigger.entity()).expect("cells should have assigned indices");
+    let cell = cells.get(trigger.target()).expect("cells should have assigned indices");
     // We don't check if a cell can't be picked on client on purpose
     // just to demonstrate how server can receive invalid requests from a client.
-    info!("picking cell {}", cell.index);
+    log::info!("picking cell {}", cell.index);
     commands.client_trigger(CellPick { index: cell.index });
 }
 
@@ -301,13 +301,13 @@ fn apply_pick(
             .get(trigger.client_entity)
             .expect("all clients should have assigned symbols");
         if symbol != **turn_symbol {
-            error!("`{}` chose cell {} at wrong turn", trigger.client_entity, trigger.index);
+            log::error!("`{}` chose cell {} at wrong turn", trigger.client_entity, trigger.index);
             return;
         }
     }
 
     let Some((entity, _)) = cells.iter().find(|(_, cell)| cell.index == trigger.index) else {
-        error!("`{}` has chosen occupied or invalid cell {}", trigger.client_entity, trigger.index);
+        log::error!("`{}` has chosen occupied or invalid cell {}", trigger.client_entity, trigger.index);
         return;
     };
 
@@ -321,12 +321,12 @@ fn init_symbols(
     symbol_font: Res<SymbolFont>,
     mut cells: Query<(&mut BackgroundColor, &Symbol), With<Button>>,
 ) {
-    let Ok((mut background, symbol)) = cells.get_mut(trigger.entity()) else {
+    let Ok((mut background, symbol)) = cells.get_mut(trigger.target()) else {
         return;
     };
     *background = BACKGROUND_COLOR.into();
 
-    commands.entity(trigger.entity()).remove::<Interaction>().with_children(|parent| {
+    commands.entity(trigger.target()).remove::<Interaction>().with_children(|parent| {
         parent.spawn((
             Text::new(symbol.glyph()),
             TextFont {
@@ -372,7 +372,7 @@ fn init_client(
     let mut entity_map = ClientEntityMap::default();
     for (server_entity, cell) in &cells {
         let Some(&client_entity) = trigger.get(&cell.index) else {
-            error!("received cells missing index {}, disconnecting", cell.index);
+            log::error!("received cells missing index {}, disconnecting", cell.index);
             commands.set_state(GameState::Disconnected);
             return;
         };
@@ -397,14 +397,14 @@ fn init_client(
 }
 
 fn make_local(trigger: Trigger<MakeLocal>, mut commands: Commands) {
-    commands.entity(trigger.entity()).insert(LocalPlayer);
+    commands.entity(trigger.target()).insert(LocalPlayer);
 }
 
 /// Sets the game in disconnected state if client closes the connection.
 ///
 /// Used only for server.
 fn disconnect_by_client(_trigger: Trigger<OnRemove, ConnectedClient>, game_state: Res<State<GameState>>, mut commands: Commands) {
-    info!("client closed the connection");
+    log::info!("client closed the connection");
     if *game_state == GameState::InGame {
         commands.set_state(GameState::Disconnected);
     }
@@ -414,7 +414,7 @@ fn disconnect_by_client(_trigger: Trigger<OnRemove, ConnectedClient>, game_state
 ///
 /// Used only for client.
 fn disconnect_by_server(mut commands: Commands) {
-    info!("server closed the connection");
+    log::info!("server closed the connection");
     commands.set_state(GameState::Disconnected);
 }
 
@@ -451,13 +451,13 @@ fn advance_turn(
         let symbols = indices.map(|index| board[index]);
         if symbols[0].is_some() && symbols.windows(2).all(|symbols| symbols[0] == symbols[1]) {
             commands.set_state(GameState::Winner);
-            info!("{} wins the game", **turn_symbol);
+            log::info!("{} wins the game", **turn_symbol);
             return;
         }
     }
 
     if board.iter().all(Option::is_some) {
-        info!("game ended in a tie");
+        log::info!("game ended in a tie");
         commands.set_state(GameState::Tie);
     } else {
         **turn_symbol = turn_symbol.next();
@@ -616,13 +616,13 @@ struct BottomText;
 #[require(
     Button,
     Replicated,
-    BackgroundColor(|| BackgroundColor(BACKGROUND_COLOR)),
-    Node(|| Node {
+    BackgroundColor(BACKGROUND_COLOR),
+    Node{
         width: Val::Px(BUTTON_SIZE),
         height: Val::Px(BUTTON_SIZE),
         margin: UiRect::all(Val::Px(BUTTON_MARGIN)),
         ..Default::default()
-    })
+    }
 )]
 struct Cell {
     index: usize,

@@ -3,6 +3,7 @@
 ## WIP
 
 - Remove `/ws` path from websocket URLs.
+- Update to `bevy` v0.16.
 
 ## 0.8.1 - 04/08/25
 

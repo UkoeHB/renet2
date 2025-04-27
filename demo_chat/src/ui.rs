@@ -1,6 +1,6 @@
 use bincode::Options;
 use eframe::{
-    egui::{self, lerp, Color32, Layout, Pos2, Ui, Vec2},
+    egui::{self, lerp, Color32, Layout, OutputCommand, Pos2, Ui, Vec2},
     epaint::PathShape,
 };
 use renet2::{ClientId, ConnectionConfig, DefaultChannel, RenetClient};
@@ -54,7 +54,7 @@ pub fn draw_host_commands(ui: &mut Ui, chat_server: &mut ChatServer) {
             ui.label(format!("Address: {}", server_addr));
             let tooltip = "Click to copy the server address";
             if ui.button("📋").on_hover_text(tooltip).clicked() {
-                ui.output_mut(|output| output.copied_text = server_addr.to_string());
+                ui.output_mut(|output| output.commands.push(OutputCommand::CopyText(server_addr.to_string())));
             }
         });
     }
