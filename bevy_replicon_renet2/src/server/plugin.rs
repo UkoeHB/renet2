@@ -20,7 +20,6 @@ impl Plugin for RepliconRenetServerPlugin {
                 PreUpdate,
                 (
                     Self::set_running.run_if(resource_added::<RenetServer>),
-                    Self::set_stopped.run_if(resource_removed::<RenetServer>),
                     (Self::receive_packets, Self::process_server_events).run_if(resource_exists::<RenetServer>),
                 )
                     .chain()
@@ -28,9 +27,13 @@ impl Plugin for RepliconRenetServerPlugin {
             )
             .add_systems(
                 PostUpdate,
-                Self::send_packets
-                    .in_set(ServerSet::SendPackets)
-                    .run_if(resource_exists::<RenetServer>),
+                (
+                    Self::set_stopped.before(ServerSet::Send).run_if(resource_removed::<RenetServer>),
+                    Self::send_packets
+                        .in_set(ServerSet::SendPackets)
+                        .run_if(resource_exists::<RenetServer>),
+                    Self::disconnect_by_request.after(RenetSend),
+                ),
             );
 
         #[cfg(feature = "netcode")]
@@ -108,6 +111,14 @@ impl RepliconRenetServerPlugin {
             renet_server.send_message(network_id.get(), channel_id as u8, message)
         }
     }
+
+    fn disconnect_by_request(mut commands: Commands, mut disconnect_events: EventReader<DisconnectRequest>) {
+        for event in disconnect_events.read() {
+            log::debug!("despawning client `{}` by disconnect request", event.client_entity);
+            commands.entity(event.client_entity).despawn();
+        }
+    }
+
     fn disconnect_client(trigger: Trigger<OnRemove, ConnectedClient>, server: Option<ResMut<RenetServer>>, clients: Query<&NetworkId>) {
         if let Some(mut server) = server {
             log::debug!("disconnecting despawned client `{}`", trigger.target());

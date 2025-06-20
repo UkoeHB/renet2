@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Update to `bevy_replicon` 0.34.
 - Trigger disconnect when entities with `ConnectedClient` are despawned.
 
 ## 0.9.1 - 04/27/25
