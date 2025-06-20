@@ -8,7 +8,7 @@ use std::{
     time::SystemTime,
 };
 
-use bevy::{platform::collections::HashMap, prelude::*};
+use bevy::prelude::*;
 use bevy_renet2::netcode::{NativeSocket, ServerSetupConfig};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{
@@ -31,10 +31,9 @@ fn main() {
                 }),
                 ..Default::default()
             }),
-            RepliconPlugins.set(ServerPlugin {
-                // We start replication manually because we want to exchange cell mappings first.
-                replicate_after_connect: false,
-                ..Default::default()
+            RepliconPlugins.set(RepliconSharedPlugin {
+                // Customize authorization because we want to exchange cell mappings first.
+                auth_method: AuthMethod::Custom,
             }),
             RepliconRenetPlugins,
             TicTacToePlugin,
@@ -51,7 +50,7 @@ impl Plugin for TicTacToePlugin {
             .init_resource::<TurnSymbol>()
             .replicate::<Symbol>()
             .add_client_trigger::<CellPick>(Channel::Ordered)
-            .add_client_trigger::<MapCells>(Channel::Ordered)
+            .add_client_trigger::<ClientInfo>(Channel::Ordered)
             .add_server_trigger::<MakeLocal>(Channel::Ordered)
             .insert_resource(ClearColor(BACKGROUND_COLOR))
             .add_observer(disconnect_by_client)
@@ -346,13 +345,14 @@ fn init_symbols(
 /// server to receive replication to already existing entities.
 ///
 /// Used only for client.
-fn client_start(mut commands: Commands, cells: Query<(Entity, &Cell)>) {
-    let mut entities = HashMap::new();
-    for (entity, cell) in &cells {
-        entities.insert(cell.index, entity);
-    }
+fn client_start(mut commands: Commands, protocol: Res<ProtocolHash>, cells: Query<(Entity, &Cell)>) {
+    let mut cells: Vec<_> = cells.iter().collect();
+    cells.sort_by_key(|(_, cell)| cell.index);
 
-    commands.client_trigger(MapCells(entities));
+    commands.client_trigger(ClientInfo {
+        protocol: *protocol,
+        cells: cells.into_iter().map(|(entity, _)| entity).collect(),
+    });
     commands.set_state(GameState::InGame);
 }
 
@@ -360,30 +360,43 @@ fn client_start(mut commands: Commands, cells: Query<(Entity, &Cell)>) {
 ///
 /// Used only for server.
 fn init_client(
-    trigger: Trigger<FromClient<MapCells>>,
+    trigger: Trigger<FromClient<ClientInfo>>,
     mut commands: Commands,
+    mut events: EventWriter<DisconnectRequest>,
+    protocol: Res<ProtocolHash>,
     cells: Query<(Entity, &Cell)>,
     server_symbol: Single<&Symbol, With<LocalPlayer>>,
 ) {
-    // Usually entity map modified directly on an connected client entity,
-    // it's a required component of `ReplicatedClient`.
-    // But since we set `replicate_after_connect` to `false`,
-    // we insert it together with `ReplicatedClient`.
-    let mut entity_map = ClientEntityMap::default();
-    for (server_entity, cell) in &cells {
-        let Some(&client_entity) = trigger.get(&cell.index) else {
-            log::error!("received cells missing index {}, disconnecting", cell.index);
-            commands.set_state(GameState::Disconnected);
-            return;
-        };
+    // Since we using custom authorization,
+    // we need to verify the protocol manually.
+    if trigger.protocol != *protocol {
+        // Notify client about the problem. No delivery
+        // guarantee since we disconnect after sending.
+        commands.server_trigger(ToClients {
+            mode: SendMode::Direct(trigger.client_entity),
+            event: ProtocolMismatch,
+        });
+        events.write(DisconnectRequest {
+            client_entity: trigger.client_entity,
+        });
+    }
 
+    // Sort local square entities to match them with the received.
+    let mut cells: Vec<_> = cells.iter().collect();
+    cells.sort_by_key(|(_, cell)| cell.index);
+
+    // This map is a required component for `AuthorizedClient`.
+    // By default it's empty, but we can initialize it with the
+    // received entities.
+    let mut entity_map = ClientEntityMap::default();
+    for (&server_entity, &client_entity) in cells.iter().map(|(entity, _)| entity).zip(&trigger.cells) {
         entity_map.insert(server_entity, client_entity);
     }
 
     // Utilize client entity as a player for convenient lookups by `client_entity`.
     commands
         .entity(trigger.client_entity)
-        .insert((Player, server_symbol.next(), ReplicatedClient, entity_map));
+        .insert((Player, server_symbol.next(), AuthorizedClient, entity_map));
 
     commands.server_trigger_targets(
         ToClients {
@@ -651,11 +664,14 @@ struct CellPick {
     index: usize,
 }
 
-/// A trigger to send client cell entities to server to estabialize mappings for replication.
+/// A client trigger with protocol information and client's chess board entities.
 ///
 /// See [`client_start`] for details.
-#[derive(Event, Deref, Serialize, Deserialize)]
-struct MapCells(HashMap<usize, Entity>);
+#[derive(Event, Serialize, Deserialize)]
+struct ClientInfo {
+    protocol: ProtocolHash,
+    cells: Vec<Entity>,
+}
 
 /// A trigger that instructs the client to mark a specific entity as [`LocalPlayer`].
 #[derive(Event, Serialize, Deserialize)]

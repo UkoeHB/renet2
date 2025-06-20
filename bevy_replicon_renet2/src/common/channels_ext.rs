@@ -17,8 +17,7 @@ pub trait RenetChannelsExt {
 impl RenetChannelsExt for RepliconChannels {
     /// Returns server channel configs that can be used to create [`ConnectionConfig`](crate::renet2::ConnectionConfig).
     ///
-    /// - [`SendType::ReliableUnordered::resend_time`] and [`SendType::ReliableOrdered::resend_time`] will be
-    /// set to 300 ms.
+    /// - [`SendType::ReliableUnordered::resend_time`] and [`SendType::ReliableOrdered::resend_time`] will be set to 300 ms.
     /// - [`ChannelConfig::max_memory_usage_bytes`] will be set to `5 * 1024 * 1024`.
     ///
     /// You can configure these parameters after creation. However, do not change [`SendType`], as Replicon relies
@@ -51,11 +50,11 @@ impl RenetChannelsExt for RepliconChannels {
     ///
     /// ```
     /// # use bevy::prelude::*;
-    /// # use bevy_replicon::{prelude::*, shared::backend::replicon_channels::ReplicationChannel};
+    /// # use bevy_replicon::{prelude::*, shared::backend::replicon_channels::ServerChannel};
     /// # use bevy_replicon_renet2::RenetChannelsExt;
     /// # let channels = RepliconChannels::default();
     /// let mut server_configs = channels.server_configs();
-    /// let channel = &mut server_configs[ReplicationChannel::Updates as usize];
+    /// let channel = &mut server_configs[ServerChannel::Updates as usize];
     /// channel.max_memory_usage_bytes = 4090;
     /// ```
     fn server_configs(&self) -> Vec<ChannelConfig> {

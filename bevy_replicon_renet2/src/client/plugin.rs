@@ -14,8 +14,6 @@ impl Plugin for RepliconRenetClientPlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    Self::set_connecting.run_if(crate::renet2::client_connecting),
-                    Self::set_disconnected.run_if(crate::renet2::client_just_disconnected),
                     Self::set_connected.run_if(crate::renet2::client_just_connected),
                     Self::receive_packets.run_if(crate::renet2::client_connected),
                 )
@@ -24,9 +22,16 @@ impl Plugin for RepliconRenetClientPlugin {
             )
             .add_systems(
                 PostUpdate,
-                Self::send_packets
-                    .in_set(ClientSet::SendPackets)
-                    .run_if(crate::renet2::client_connected),
+                (
+                    (
+                        Self::set_connecting.run_if(crate::renet2::client_connecting),
+                        Self::set_disconnected.run_if(crate::renet2::client_just_disconnected),
+                    )
+                        .before(ClientSet::Send),
+                    Self::send_packets
+                        .in_set(ClientSet::SendPackets)
+                        .run_if(crate::renet2::client_connected),
+                ),
             );
 
         #[cfg(feature = "netcode")]
