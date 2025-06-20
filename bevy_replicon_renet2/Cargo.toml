@@ -31,7 +31,9 @@ log = { version = "0.4" }
 clap = { version = "4.1", features = ["derive"] }
 bevy_renet2 = { path = "../bevy_renet2", version = "0.9.1", features = ["native_transport"] }
 bevy = { version = "0.16", default-features = false, features = [
+  "bevy_log",
   "bevy_picking",
+  "bevy_ui_picking_backend",
   "bevy_state",
   "bevy_text",
   "bevy_ui",
