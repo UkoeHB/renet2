@@ -1,6 +1,6 @@
 [package]
 name = "renet2"
-version = "0.10.0"
+version = "0.11.0"
 authors = ["koe <ukoe@protonmail.com>"]
 description = "Server/Client network protocol library for multiplayer games, forked from renet"
 edition = "2021"
@@ -21,7 +21,7 @@ default = []
 bevy = ["dep:bevy_ecs"]
 
 [dependencies]
-bevy_ecs = { version = "0.16", optional = true }
+bevy_ecs = { version = "0.17", optional = true }
 bytes = "1.1"
 log = "0.4"
 octets = "0.3"

@@ -278,7 +278,7 @@ fn disconnect_client() {
     assert_eq!(server.world().resource::<RenetServer>().clients_id(), vec![1]);
     assert!(client.world().resource::<NetcodeClientTransport>().is_connected());
 
-    client.world_mut().send_event(AppExit::Success);
+    client.world_mut().write_message(AppExit::Success);
     client.update();
     server.update();
     client.update();
@@ -298,7 +298,7 @@ fn disconnect_server() {
     assert_eq!(server.world().resource::<RenetServer>().clients_id(), [1]);
     assert!(client.world().resource::<NetcodeClientTransport>().is_connected());
 
-    server.world_mut().send_event(AppExit::Success);
+    server.world_mut().write_message(AppExit::Success);
     server.update();
     client.update();
     client.update();

@@ -32,10 +32,7 @@ fn connect_disconnect() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin {
-                tick_policy: TickPolicy::EveryFrame,
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ));
     }
@@ -66,27 +63,24 @@ fn disconnect_request() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin {
-                tick_policy: TickPolicy::EveryFrame,
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<TestEvent>(Channel::Ordered)
+        .add_server_event::<TestMessage>(Channel::Ordered)
         .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
     server_app.world_mut().spawn(Replicated);
-    server_app.world_mut().send_event(ToClients {
+    server_app.world_mut().write_message(ToClients {
         mode: SendMode::Broadcast,
-        event: TestEvent,
+        message: TestMessage,
     });
 
     let mut clients = server_app.world_mut().query_filtered::<Entity, With<ConnectedClient>>();
     let client_entity = clients.single(server_app.world()).unwrap();
-    server_app.world_mut().send_event(DisconnectRequest { client_entity });
+    server_app.world_mut().write_message(DisconnectRequest { client: client_entity });
 
     server_app.update();
 
@@ -105,7 +99,7 @@ fn disconnect_request() {
     let client = client_app.world().resource::<RepliconClient>();
     assert!(client.is_disconnected());
 
-    let events = client_app.world().resource::<Events<TestEvent>>();
+    let events = client_app.world().resource::<Events<TestMessage>>();
     assert_eq!(events.len(), 1, "last event should be received");
 
     let mut replicated = client_app.world_mut().query::<&Replicated>();
@@ -119,13 +113,10 @@ fn server_stop() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin {
-                tick_policy: TickPolicy::EveryFrame,
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<TestEvent>(Channel::Ordered)
+        .add_server_event::<TestMessage>(Channel::Ordered)
         .finish();
     }
 
@@ -134,7 +125,7 @@ fn server_stop() {
     server_app.world_mut().spawn(Replicated);
     server_app.world_mut().send_event(ToClients {
         mode: SendMode::Broadcast,
-        event: TestEvent,
+        message: TestMessage,
     });
 
     // In renet, it's necessary to explicitly call disconnect before removing
@@ -166,7 +157,7 @@ fn server_stop() {
     let client = client_app.world().resource::<RepliconClient>();
     assert!(client.is_disconnected());
 
-    let events = client_app.world().resource::<Events<TestEvent>>();
+    let events = client_app.world().resource::<Events<TestMessage>>();
     assert!(events.is_empty(), "event after stop shouldn't be received");
 
     let mut replicated = client_app.world_mut().query::<&Replicated>();
@@ -184,10 +175,7 @@ fn replication() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin {
-                tick_policy: TickPolicy::EveryFrame,
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ));
     }
@@ -209,13 +197,10 @@ fn server_event() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin {
-                tick_policy: TickPolicy::EveryFrame,
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<TestEvent>(Channel::Ordered)
+        .add_server_event::<TestMessage>(Channel::Ordered)
         .finish();
     }
 
@@ -223,13 +208,13 @@ fn server_event() {
 
     server_app.world_mut().send_event(ToClients {
         mode: SendMode::Broadcast,
-        event: TestEvent,
+        message: TestMessage,
     });
 
     server_app.update();
     client_app.update();
 
-    let events = client_app.world().resource::<Events<TestEvent>>();
+    let events = client_app.world().resource::<Events<TestMessage>>();
     assert_eq!(events.len(), 1);
 }
 
@@ -240,24 +225,21 @@ fn client_event() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin {
-                tick_policy: TickPolicy::EveryFrame,
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
-        .add_client_event::<TestEvent>(Channel::Ordered)
+        .add_client_event::<TestMessage>(Channel::Ordered)
         .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
-    client_app.world_mut().send_event(TestEvent);
+    client_app.world_mut().send_event(TestMessage);
 
     client_app.update();
     server_app.update();
 
-    let client_events = server_app.world().resource::<Events<FromClient<TestEvent>>>();
+    let client_events = server_app.world().resource::<Events<FromClient<TestMessage>>>();
     assert_eq!(client_events.len(), 1);
 }
 
@@ -342,5 +324,5 @@ fn wait_for_connection(server_app: &mut App, client_app: &mut App) {
     }
 }
 
-#[derive(Deserialize, Event, Serialize)]
-struct TestEvent;
+#[derive(Deserialize, Message, Serialize)]
+struct TestMessage;

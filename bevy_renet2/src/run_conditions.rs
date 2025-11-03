@@ -39,7 +39,7 @@ pub fn client_just_disconnected(mut last_connected: Local<bool>, client: Option<
     just_disconnected
 }
 
-pub fn client_should_update() -> impl Condition<()> {
+pub fn client_should_update() -> impl SystemCondition<()> {
     // (just_disconnected || !disconnected) && exists<RenetClient>
     IntoSystem::into_system(
         client_just_disconnected

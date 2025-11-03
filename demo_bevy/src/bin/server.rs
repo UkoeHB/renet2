@@ -88,9 +88,7 @@ fn main() {
     app.add_plugins(RenetServerPlugin);
     app.add_plugins(FrameTimeDiagnosticsPlugin::default());
     app.add_plugins(LogDiagnosticsPlugin::default());
-    app.add_plugins(EguiPlugin {
-        enable_multipass_for_primary_context: false,
-    });
+    app.add_plugins(EguiPlugin::default());
 
     app.insert_resource(ServerLobby::default());
     app.insert_resource(BotId(0));
@@ -127,7 +125,7 @@ fn main() {
 
 #[allow(clippy::too_many_arguments)]
 fn server_update_system(
-    mut server_events: EventReader<ServerEvent>,
+    mut server_events: MessageReader<ServerEvent>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -230,7 +228,7 @@ fn server_update_system(
 fn update_projectiles_system(mut commands: Commands, mut projectiles: Query<(Entity, &mut Projectile)>, time: Res<Time>) {
     for (entity, mut projectile) in projectiles.iter_mut() {
         projectile.duration.tick(time.delta());
-        if projectile.duration.finished() {
+        if projectile.duration.is_finished() {
             commands.entity(entity).despawn();
         }
     }
@@ -238,7 +236,7 @@ fn update_projectiles_system(mut commands: Commands, mut projectiles: Query<(Ent
 
 fn update_visualizer_system(mut egui_contexts: EguiContexts, mut visualizer: ResMut<RenetServerVisualizer<200>>, server: Res<RenetServer>) {
     visualizer.update(&server);
-    visualizer.show_window(egui_contexts.ctx_mut());
+    visualizer.show_window(egui_contexts.ctx_mut().unwrap());
 }
 
 #[allow(clippy::type_complexity)]

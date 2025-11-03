@@ -14,7 +14,7 @@ pub struct NetcodeClientPlugin;
 
 impl Plugin for NetcodeServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<NetcodeTransportError>();
+        app.add_message::<NetcodeTransportError>();
 
         app.add_systems(
             PreUpdate,
@@ -46,7 +46,7 @@ impl NetcodeServerPlugin {
         mut transport: ResMut<NetcodeServerTransport>,
         mut server: ResMut<RenetServer>,
         time: Res<Time>,
-        mut transport_errors: EventWriter<NetcodeTransportError>,
+        mut transport_errors: MessageWriter<NetcodeTransportError>,
     ) {
         if let Err(e) = transport.update(time.delta(), &mut server) {
             // TODO: This does not indicate which server socket the error came from.
@@ -60,7 +60,11 @@ impl NetcodeServerPlugin {
         transport.send_packets(&mut server);
     }
 
-    pub fn disconnect_on_exit(exit: EventReader<AppExit>, mut transport: ResMut<NetcodeServerTransport>, mut server: ResMut<RenetServer>) {
+    pub fn disconnect_on_exit(
+        exit: MessageReader<AppExit>,
+        mut transport: ResMut<NetcodeServerTransport>,
+        mut server: ResMut<RenetServer>,
+    ) {
         if !exit.is_empty() {
             transport.disconnect_all(&mut server);
         }
@@ -69,7 +73,7 @@ impl NetcodeServerPlugin {
 
 impl Plugin for NetcodeClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<NetcodeTransportError>();
+        app.add_message::<NetcodeTransportError>();
 
         app.add_systems(
             PreUpdate,
@@ -100,7 +104,7 @@ impl NetcodeClientPlugin {
         mut transport: ResMut<NetcodeClientTransport>,
         mut client: ResMut<RenetClient>,
         time: Res<Time>,
-        mut transport_errors: EventWriter<NetcodeTransportError>,
+        mut transport_errors: MessageWriter<NetcodeTransportError>,
     ) {
         if let Err(e) = transport.update(time.delta(), &mut client) {
             transport_errors.write(e);
@@ -110,14 +114,14 @@ impl NetcodeClientPlugin {
     pub fn send_packets(
         mut transport: ResMut<NetcodeClientTransport>,
         mut client: ResMut<RenetClient>,
-        mut transport_errors: EventWriter<NetcodeTransportError>,
+        mut transport_errors: MessageWriter<NetcodeTransportError>,
     ) {
         if let Err(e) = transport.send_packets(&mut client) {
             transport_errors.write(e);
         }
     }
 
-    pub fn disconnect_on_exit(exit: EventReader<AppExit>, mut transport: ResMut<NetcodeClientTransport>) {
+    pub fn disconnect_on_exit(exit: MessageReader<AppExit>, mut transport: ResMut<NetcodeClientTransport>) {
         if !exit.is_empty() {
             transport.disconnect();
         }

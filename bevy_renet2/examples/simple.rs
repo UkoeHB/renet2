@@ -1,4 +1,5 @@
-use bevy::{prelude::*, render::mesh::PlaneMeshBuilder};
+use bevy::mesh::PlaneMeshBuilder;
+use bevy::prelude::*;
 use bevy_renet2::netcode::{
     ClientAuthentication, NativeSocket, NetcodeClientPlugin, NetcodeClientTransport, NetcodeServerPlugin, NetcodeServerTransport,
     NetcodeTransportError, ServerAuthentication, ServerSetupConfig,
@@ -125,7 +126,7 @@ fn main() {
 }
 
 fn server_update_system(
-    mut server_events: EventReader<ServerEvent>,
+    mut server_events: MessageReader<ServerEvent>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -284,7 +285,7 @@ fn move_players_system(mut query: Query<(&mut Transform, &PlayerInput)>, time: R
 
 // If any error is found we just panic
 #[allow(clippy::never_loop)]
-fn panic_on_error_system(mut renet_error: EventReader<NetcodeTransportError>) {
+fn panic_on_error_system(mut renet_error: MessageReader<NetcodeTransportError>) {
     for e in renet_error.read() {
         panic!("{}", e);
     }
