@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.12.0 - Unreleased
+
+- Update to `bevy_replicon` 0.37.
+
 ## 0.11.0 - 11/03/25
 
 - Update to `bevy` 0.17 and `bevy_replicon` 0.36.
