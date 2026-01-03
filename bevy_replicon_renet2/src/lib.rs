@@ -86,7 +86,7 @@ like [`Startup`](bevy::prelude::Startup). As a workaround, you can directly chec
 in the future once we have [observers for resources](https://github.com/bevyengine/bevy/issues/12231)
 to immediately react to changes.
 */
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use bevy_renet2::prelude as renet2;
 
