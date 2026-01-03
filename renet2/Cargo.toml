@@ -1,6 +1,6 @@
 [package]
 name = "renet2"
-version = "0.12.0"
+version = "0.12.1"
 authors = ["koe <ukoe@protonmail.com>"]
 description = "Server/Client network protocol library for multiplayer games, forked from renet"
 edition = "2021"
