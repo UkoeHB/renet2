@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 0.12.1 - 01/03/26
+
+- Replace `doc_auto_cfg` with `doc_cfg`.
+
 ## 0.12.0 - 01/02/26
 
 - Update to `bevy_replicon` 0.37.
