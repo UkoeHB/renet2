@@ -74,5 +74,5 @@ ws-rustls = ["bevy_renet2/ws-rustls"]
 ws-native-tls = ["bevy_renet2/ws-native-tls"]
 
 [[test]]
-name = "transport"
+name = "netcode"
 required-features = ["native_transport", "client", "server"]

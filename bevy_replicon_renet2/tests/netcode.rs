@@ -3,57 +3,63 @@ use std::{
     time::SystemTime,
 };
 
-use bevy::prelude::*;
-use bevy_renet2::netcode::{
-    ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
+use bevy::{ecs::schedule::ScheduleLabel, prelude::*, state::app::StatesPlugin};
+use bevy_renet2::{
+    netcode::{
+        ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
+    },
+    prelude::{ConnectionConfig, RenetClient, RenetServer},
 };
-use bevy_renet2::prelude::{ConnectionConfig, RenetClient, RenetServer};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{RenetChannelsExt, RepliconRenetPlugins};
 use serde::{Deserialize, Serialize};
 
 #[test]
 fn connect_disconnect() {
-    /*
-    let filter = tracing_subscriber::EnvFilter::builder()
-        .with_default_directive(tracing_subscriber::filter::LevelFilter::DEBUG.into())
-        .from_env()
-        .unwrap()
-        .add_directive("renet2=debug".parse().unwrap())
-        .add_directive("renetcode2=debug".parse().unwrap());
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .init();
-    */
-
     let mut server_app = App::new();
     let mut client_app = App::new();
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
+            StatesPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                tick_schedule: PostUpdate.intern(),
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
-        ));
+        ))
+        .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
+    let server_state = server_app.world().resource::<State<ServerState>>();
+    assert_eq!(*server_state, ServerState::Running);
+
+    let renet_server = server_app.world().resource::<RenetServer>();
+    assert_eq!(renet_server.connected_clients(), 1);
+
+    let mut clients = server_app.world_mut().query::<(&ConnectedClient, &AuthorizedClient)>();
+    assert_eq!(clients.iter(server_app.world()).len(), 1);
+
+    let client_state = client_app.world().resource::<State<ClientState>>();
+    assert_eq!(*client_state, ClientState::Connected);
+
     let mut renet_client = client_app.world_mut().resource_mut::<RenetClient>();
     assert!(renet_client.is_connected());
+
     renet_client.disconnect();
 
     client_app.update();
     server_app.update();
 
+    assert_eq!(clients.iter(server_app.world()).len(), 0);
+
     let renet_server = server_app.world().resource::<RenetServer>();
     assert_eq!(renet_server.connected_clients(), 0);
 
-    let mut clients = server_app.world_mut().query::<&ConnectedClient>();
-    assert_eq!(clients.iter(server_app.world()).len(), 0);
-
-    let replicon_client = client_app.world_mut().resource_mut::<RepliconClient>();
-    assert!(replicon_client.is_disconnected());
+    let client_state = client_app.world().resource::<State<ClientState>>();
+    assert_eq!(*client_state, ClientState::Disconnected);
 }
 
 #[test]
@@ -63,10 +69,14 @@ fn disconnect_request() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
+            StatesPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                tick_schedule: PostUpdate.intern(),
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<TestMessage>(Channel::Ordered)
+        .add_server_message::<Test>(Channel::Ordered)
         .finish();
     }
 
@@ -75,12 +85,12 @@ fn disconnect_request() {
     server_app.world_mut().spawn(Replicated);
     server_app.world_mut().write_message(ToClients {
         mode: SendMode::Broadcast,
-        message: TestMessage,
+        message: Test,
     });
 
     let mut clients = server_app.world_mut().query_filtered::<Entity, With<ConnectedClient>>();
-    let client_entity = clients.single(server_app.world()).unwrap();
-    server_app.world_mut().write_message(DisconnectRequest { client: client_entity });
+    let client = clients.single(server_app.world()).unwrap();
+    server_app.world_mut().write_message(DisconnectRequest { client });
 
     server_app.update();
 
@@ -96,11 +106,11 @@ fn disconnect_request() {
 
     client_app.update();
 
-    let client = client_app.world().resource::<RepliconClient>();
-    assert!(client.is_disconnected());
+    let client_state = client_app.world().resource::<State<ClientState>>();
+    assert_eq!(*client_state, ClientState::Disconnected);
 
-    let events = client_app.world().resource::<Events<TestMessage>>();
-    assert_eq!(events.len(), 1, "last event should be received");
+    let messages = client_app.world().resource::<Messages<Test>>();
+    assert_eq!(messages.len(), 1, "last message should be received");
 
     let mut replicated = client_app.world_mut().query::<&Replicated>();
     assert_eq!(replicated.iter(client_app.world()).len(), 1, "last replication should be received");
@@ -113,19 +123,23 @@ fn server_stop() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
+            StatesPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                tick_schedule: PostUpdate.intern(),
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<TestMessage>(Channel::Ordered)
+        .add_server_message::<Test>(Channel::Ordered)
         .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
     server_app.world_mut().spawn(Replicated);
-    server_app.world_mut().send_event(ToClients {
+    server_app.world_mut().write_message(ToClients {
         mode: SendMode::Broadcast,
-        message: TestMessage,
+        message: Test,
     });
 
     // In renet, it's necessary to explicitly call disconnect before removing
@@ -138,12 +152,14 @@ fn server_stop() {
 
     let mut clients = server_app.world_mut().query::<&ConnectedClient>();
     assert_eq!(clients.iter(server_app.world()).len(), 0);
-    assert!(
-        server_app.world().resource::<RepliconServer>().is_running(),
-        "requires resource removal"
-    );
-    assert!(
-        client_app.world().resource::<RenetClient>().is_connected(),
+
+    let server_state = server_app.world().resource::<State<ServerState>>();
+    assert_eq!(*server_state, ServerState::Running, "requires resource removal");
+
+    let client_state = client_app.world().resource::<State<ClientState>>();
+    assert_eq!(
+        *client_state,
+        ClientState::Connected,
         "renet client disconnects only on the next frame"
     );
 
@@ -152,13 +168,14 @@ fn server_stop() {
     server_app.update();
     client_app.update();
 
-    assert!(!server_app.world().resource::<RepliconServer>().is_running());
+    let server_state = client_app.world().resource::<State<ServerState>>();
+    assert_eq!(*server_state, ServerState::Stopped);
 
-    let client = client_app.world().resource::<RepliconClient>();
-    assert!(client.is_disconnected());
+    let client_state = client_app.world().resource::<State<ClientState>>();
+    assert_eq!(*client_state, ClientState::Disconnected);
 
-    let events = client_app.world().resource::<Events<TestMessage>>();
-    assert!(events.is_empty(), "event after stop shouldn't be received");
+    let messages = client_app.world().resource::<Messages<Test>>();
+    assert!(messages.is_empty(), "message after stop shouldn't be received");
 
     let mut replicated = client_app.world_mut().query::<&Replicated>();
     assert_eq!(
@@ -175,9 +192,14 @@ fn replication() {
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
+            StatesPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                tick_schedule: PostUpdate.intern(),
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
-        ));
+        ))
+        .finish();
     }
 
     setup(&mut server_app, &mut client_app);
@@ -187,60 +209,69 @@ fn replication() {
     server_app.update();
     client_app.update();
 
-    client_app.world_mut().query::<&Replicated>().single(client_app.world()).unwrap();
+    let mut replicated = client_app.world_mut().query::<&Replicated>();
+    assert_eq!(replicated.iter(client_app.world()).len(), 1);
 }
 
 #[test]
-fn server_event() {
+fn server_message() {
     let mut server_app = App::new();
     let mut client_app = App::new();
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
+            StatesPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                tick_schedule: PostUpdate.intern(),
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
         ))
-        .add_server_event::<TestMessage>(Channel::Ordered)
+        .add_server_message::<Test>(Channel::Ordered)
         .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
-    server_app.world_mut().send_event(ToClients {
+    server_app.world_mut().write_message(ToClients {
         mode: SendMode::Broadcast,
-        message: TestMessage,
+        message: Test,
     });
 
     server_app.update();
     client_app.update();
 
-    let events = client_app.world().resource::<Events<TestMessage>>();
-    assert_eq!(events.len(), 1);
+    let messages = client_app.world().resource::<Messages<Test>>();
+    assert_eq!(messages.len(), 1);
 }
 
 #[test]
-fn client_event() {
+fn client_message() {
     let mut server_app = App::new();
     let mut client_app = App::new();
     for app in [&mut server_app, &mut client_app] {
         app.add_plugins((
             MinimalPlugins,
-            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
+            StatesPlugin,
+            RepliconPlugins.set(ServerPlugin {
+                tick_schedule: PostUpdate.intern(),
+                ..Default::default()
+            }),
             RepliconRenetPlugins,
         ))
-        .add_client_event::<TestMessage>(Channel::Ordered)
+        .add_client_message::<Test>(Channel::Ordered)
         .finish();
     }
 
     setup(&mut server_app, &mut client_app);
 
-    client_app.world_mut().send_event(TestMessage);
+    client_app.world_mut().write_message(Test);
 
     client_app.update();
     server_app.update();
 
-    let client_events = server_app.world().resource::<Events<FromClient<TestMessage>>>();
-    assert_eq!(client_events.len(), 1);
+    let client_messages = server_app.world().resource::<Messages<FromClient<Test>>>();
+    assert_eq!(client_messages.len(), 1);
 }
 
 fn setup(server_app: &mut App, client_app: &mut App) {
@@ -324,5 +355,5 @@ fn wait_for_connection(server_app: &mut App, client_app: &mut App) {
     }
 }
 
-#[derive(Deserialize, Message, Serialize)]
-struct TestMessage;
+#[derive(Message, Serialize, Deserialize)]
+struct Test;
