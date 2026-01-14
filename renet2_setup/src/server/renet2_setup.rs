@@ -32,20 +32,21 @@ fn make_websocket_url(with_tls: bool, ip: std::net::IpAddr, port: u16, maybe_dom
 fn add_memory_socket(
     config: &GameServerSetupConfig,
     memory_clients: Vec<u16>,
-    socket_addresses: &mut Vec<Vec<SocketAddr>>,
-    sockets: &mut Vec<BoxedSocket>,
+    socket_addresses: &mut [Vec<SocketAddr>],
+    sockets: &mut [BoxedSocket],
     auth_key: &[u8; 32],
 ) -> Result<Option<crate::ConnectMetaMemory>, String> {
-    if memory_clients.len() == 0 {
+    if memory_clients.is_empty() {
         return Ok(None);
     }
 
     #[cfg(not(feature = "memory_transport"))]
     {
-        return Err(format!(
+        Err(
             "tried setting up renet2 server with in-memory clients, but memory_transport feature \
             is not enabled"
-        ));
+                .to_string(),
+        )
     }
 
     #[cfg(feature = "memory_transport")]
@@ -73,8 +74,8 @@ fn add_memory_socket(
 fn add_native_socket(
     config: &GameServerSetupConfig,
     native_count: usize,
-    socket_addresses: &mut Vec<Vec<SocketAddr>>,
-    sockets: &mut Vec<BoxedSocket>,
+    socket_addresses: &mut [Vec<SocketAddr>],
+    sockets: &mut [BoxedSocket],
     auth_key: &[u8; 32],
 ) -> Result<Option<ConnectMetaNative>, String> {
     if native_count == 0 {
@@ -83,10 +84,9 @@ fn add_native_socket(
 
     #[cfg(not(feature = "native_transport"))]
     {
-        return Err(format!(
-            "tried setting up renet2 server with native clients, but native_transport feature \
+        Err("tried setting up renet2 server with native clients, but native_transport feature \
             is not enabled"
-        ));
+            .to_string())
     }
 
     #[cfg(feature = "native_transport")]
@@ -125,8 +125,8 @@ fn add_native_socket(
 fn add_wasm_wt_socket(
     config: &GameServerSetupConfig,
     count: usize,
-    socket_addresses: &mut Vec<Vec<SocketAddr>>,
-    sockets: &mut Vec<BoxedSocket>,
+    socket_addresses: &mut [Vec<SocketAddr>],
+    sockets: &mut [BoxedSocket],
     auth_key: &[u8; 32],
 ) -> Result<Option<ConnectMetaWasmWt>, String> {
     if count == 0 {
@@ -135,10 +135,9 @@ fn add_wasm_wt_socket(
 
     #[cfg(not(feature = "wt_server_transport"))]
     {
-        return Err(format!(
-            "tried setting up renet2 server with wasm webtransport clients, but \
+        Err("tried setting up renet2 server with wasm webtransport clients, but \
             wt_server_transport feature is not enabled"
-        ));
+            .to_string())
     }
 
     #[cfg(feature = "wt_server_transport")]
@@ -184,8 +183,8 @@ fn add_wasm_wt_socket(
 fn add_wasm_ws_socket(
     config: &GameServerSetupConfig,
     count: usize,
-    socket_addresses: &mut Vec<Vec<SocketAddr>>,
-    sockets: &mut Vec<BoxedSocket>,
+    socket_addresses: &mut [Vec<SocketAddr>],
+    sockets: &mut [BoxedSocket],
     auth_key: &[u8; 32],
 ) -> Result<Option<ConnectMetaWasmWs>, String> {
     if count == 0 {
@@ -194,10 +193,11 @@ fn add_wasm_ws_socket(
 
     #[cfg(not(feature = "ws_server_transport"))]
     {
-        return Err(format!(
+        Err(
             "tried setting up renet2 server with wasm websocket clients, but ws_server_transport \
             feature is not enabled"
-        ));
+                .to_string(),
+        )
     }
 
     #[cfg(feature = "ws_server_transport")]
