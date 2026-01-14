@@ -8,7 +8,7 @@ use super::*;
 /// Implementation of [`ClientSocket`] for clients of an in-memory channel server socket.
 ///
 /// In-memory sockets are treated as encrypted and reliable by default for efficiency. Use [`Self::new_with`] to use
-/// a different policy (this is useful for performane tests).
+/// a different policy (this is useful for performance tests).
 #[derive(Debug, Clone)]
 pub struct MemorySocketClient {
     client_id: u16,
