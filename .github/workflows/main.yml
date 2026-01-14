@@ -2,7 +2,7 @@ name: Main
 on:
   push:
     branches:
-      - master
+      - main
     paths-ignore:
       - ".gitignore"
       - ".github/dependabot.yml"

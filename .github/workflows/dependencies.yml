@@ -1,15 +1,16 @@
 name: Dependencies
 on:
   push:
-    branches-ignore:
-      - "dependabot/**"
-      - "releases/**"
+    branches:
+      - main
     paths:
       - "Cargo.toml"
+      - "Cargo.lock"
       - "deny.toml"
   pull_request:
     paths:
       - "Cargo.toml"
+      - "Cargo.lock"
       - "deny.toml"
   schedule:
     - cron: "0 0 * * 0"
@@ -21,7 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
 
       - name: Check dependencies
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --all-features --workspace
+          command-arguments: -D warnings
