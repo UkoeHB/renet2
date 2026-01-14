@@ -90,7 +90,7 @@ fn add_steam_network(app: &mut App) {
     let server_steam_id: u64 = args[1].parse().unwrap();
     let server_steam_id = SteamId::from_raw(server_steam_id);
 
-    let client = RenetClient::new(connection_config());
+    let client = RenetClient::new(connection_config(), false);
     let transport = SteamClientTransport::new(&steam_client, &server_steam_id).unwrap();
 
     app.add_plugins(SteamClientPlugin);
@@ -109,7 +109,7 @@ fn add_steam_network(app: &mut App) {
 
     // If any error is found we just panic
     #[allow(clippy::never_loop)]
-    fn panic_on_error_system(mut renet_error: EventReader<SteamTransportError>) {
+    fn panic_on_error_system(mut renet_error: MessageReader<SteamTransportError>) {
         for e in renet_error.read() {
             panic!("{}", e);
         }

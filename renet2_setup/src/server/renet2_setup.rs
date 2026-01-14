@@ -1,3 +1,5 @@
+#![allow(clippy::ptr_arg, reason = "`&mut Vec` needed when certain features are enabled")]
+
 use crate::common::{ConnectMetaNative, ConnectMetaWasmWs, ConnectMetaWasmWt, ConnectMetas, GameServerSetupConfig};
 use renet2::{ConnectionConfig, RenetServer};
 use renet2_netcode::{BoxedSocket, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig};
@@ -32,8 +34,8 @@ fn make_websocket_url(with_tls: bool, ip: std::net::IpAddr, port: u16, maybe_dom
 fn add_memory_socket(
     config: &GameServerSetupConfig,
     memory_clients: Vec<u16>,
-    socket_addresses: &mut [Vec<SocketAddr>],
-    sockets: &mut [BoxedSocket],
+    socket_addresses: &mut Vec<Vec<SocketAddr>>,
+    sockets: &mut Vec<BoxedSocket>,
     auth_key: &[u8; 32],
 ) -> Result<Option<crate::ConnectMetaMemory>, String> {
     if memory_clients.is_empty() {
@@ -58,7 +60,7 @@ fn add_memory_socket(
             server_config: config.clone(),
             clients: client_sockets,
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
         };
 
         socket_addresses.push(addrs);
@@ -74,8 +76,8 @@ fn add_memory_socket(
 fn add_native_socket(
     config: &GameServerSetupConfig,
     native_count: usize,
-    socket_addresses: &mut [Vec<SocketAddr>],
-    sockets: &mut [BoxedSocket],
+    socket_addresses: &mut Vec<Vec<SocketAddr>>,
+    sockets: &mut Vec<BoxedSocket>,
     auth_key: &[u8; 32],
 ) -> Result<Option<ConnectMetaNative>, String> {
     if native_count == 0 {
@@ -101,13 +103,13 @@ fn add_native_socket(
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 native socket: {err:?}"))?;
         let public_port = if config.native_port_proxy > 0 { config.native_port_proxy } else { local_addr.port() };
-        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), public_port)] } else { vec![local_addr] };
+        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy, public_port)] } else { vec![local_addr] };
 
         let meta = ConnectMetaNative {
             server_config: config.clone(),
             server_addresses: addrs.clone(),
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
         };
 
         log::info!("native renet2 socket; local addr = {}, public addr = {}", local_addr, addrs[0]);
@@ -125,8 +127,8 @@ fn add_native_socket(
 fn add_wasm_wt_socket(
     config: &GameServerSetupConfig,
     count: usize,
-    socket_addresses: &mut [Vec<SocketAddr>],
-    sockets: &mut [BoxedSocket],
+    socket_addresses: &mut Vec<Vec<SocketAddr>>,
+    sockets: &mut Vec<BoxedSocket>,
     auth_key: &[u8; 32],
 ) -> Result<Option<ConnectMetaWasmWt>, String> {
     if count == 0 {
@@ -154,13 +156,13 @@ fn add_wasm_wt_socket(
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 webtransport socket: {err:?}"))?;
         let public_port = if config.wasm_wt_port_proxy > 0 { config.wasm_wt_port_proxy } else { local_addr.port() };
-        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), public_port)] } else { vec![local_addr] };
+        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy, public_port)] } else { vec![local_addr] };
 
         let meta = ConnectMetaWasmWt {
             server_config: config.clone(),
             server_addresses: addrs.clone(),
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
             cert_hashes: vec![cert_hash],
         };
 
@@ -183,8 +185,8 @@ fn add_wasm_wt_socket(
 fn add_wasm_ws_socket(
     config: &GameServerSetupConfig,
     count: usize,
-    socket_addresses: &mut [Vec<SocketAddr>],
-    sockets: &mut [BoxedSocket],
+    socket_addresses: &mut Vec<Vec<SocketAddr>>,
+    sockets: &mut Vec<BoxedSocket>,
     auth_key: &[u8; 32],
 ) -> Result<Option<ConnectMetaWasmWs>, String> {
     if count == 0 {
@@ -222,7 +224,7 @@ fn add_wasm_ws_socket(
             // Dummy public address when using a domain name.
             vec![SocketAddr::from(([0, 0, 0, 0], 0))]
         } else if let Some(proxy) = config.proxy_ip {
-            vec![SocketAddr::new(proxy.clone(), public_port)]
+            vec![SocketAddr::new(proxy, public_port)]
         } else {
             vec![local_addr]
         };
@@ -235,7 +237,7 @@ fn add_wasm_ws_socket(
             server_config: config.clone(),
             server_addresses: addrs.clone(),
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
             url,
         };
 
