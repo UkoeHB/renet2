@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
-use bevy_egui::{EguiContexts, EguiPlugin};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_renet2::prelude::{ClientId, RenetClient, RenetClientPlugin};
 use demo_bevy::{setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages};
 use renet2_visualizer::{RenetClientVisualizer, RenetVisualizerStyle};
@@ -147,7 +147,7 @@ fn main() {
     app.insert_resource(RenetClientVisualizer::<200>::new(RenetVisualizerStyle::default()));
 
     app.add_systems(Startup, (setup_level, setup_camera, setup_target));
-    app.add_systems(Update, update_visualizer_system);
+    app.add_systems(EguiPrimaryContextPass, update_visualizer_system);
 
     app.run();
 }
