@@ -111,7 +111,7 @@ renetcode2 = { path = "../renetcode2", version = "0.13.0" }
 renet2 = { path = "../renet2", version = "0.13.0" }
 hmac-sha256 = { version = "1.1" }
 url = { version = "2.4" }
-bevy_ecs = { version = "0.17", optional = true }
+bevy_ecs = { version = "0.18", optional = true }
 serde = { version = "1.0", optional = true, features = ["derive"] }
 
 # In-memory transport socket
