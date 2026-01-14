@@ -9,7 +9,7 @@ name = "server"
 path = "src/bin/server.rs"
 
 [features]
-netcode = ["bevy_renet2/netcode"]
+netcode = ["bevy_renet2/netcode", "bevy_renet2/native_transport"]
 steam = ["bevy_renet2/steam"]
 
 [dependencies]
