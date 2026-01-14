@@ -12,7 +12,7 @@ pub fn connect_token_to_bytes(connect_token: &ConnectToken) -> Result<Vec<u8>, s
 
 //-------------------------------------------------------------------------------------------------------------------
 
-pub fn connect_token_from_bytes(connect_token_bytes: &Vec<u8>) -> Result<ConnectToken, NetcodeError> {
+pub fn connect_token_from_bytes(connect_token_bytes: &[u8]) -> Result<ConnectToken, NetcodeError> {
     ConnectToken::read(&mut &connect_token_bytes[..])
 }
 

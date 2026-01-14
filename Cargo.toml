@@ -1,20 +1,18 @@
 [workspace]
 members = [
-    "examples/echo_client_native",
-    #"examples/echo_client_wasm", # requires wasm32-unknown-unknown target
-    "examples/echo_server_cross",
-    "demo_chat",
-    "demo_bevy",
-    "bevy_renet2",
-    "bevy_replicon_renet2",
-    "renet2",
-    "renet2_netcode",
-    "renet2_visualizer",
-    "renet2_setup",
-    "renet2_steam",
-    "renetcode2",
+  "examples/echo_client_native",
+  #"examples/echo_client_wasm", # requires wasm32-unknown-unknown target
+  "examples/echo_server_cross",
+  "demo_chat",
+  "demo_bevy",
+  "bevy_renet2",
+  "bevy_replicon_renet2",
+  "renet2",
+  "renet2_netcode",
+  "renet2_visualizer",
+  "renet2_setup",
+  "renet2_steam",
+  "renetcode2",
 ]
-exclude = [
-    "examples/echo_client_wasm",
-]
+exclude = ["examples/echo_client_wasm"]
 resolver = "2"

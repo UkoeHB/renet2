@@ -15,4 +15,4 @@ Running using the steam transport:
 - client: `cargo run --bin client --features steam -- [HOST_STEAM_ID]`
   - The `HOST_STEAM_ID` is printed in the console when the server is started
 
-You can toogle [renet2_visualizer](https://github.com/UkoeHB/renet/tree/master/renet2_visualizer) with `F1` in the client.
+You can toggle [renet2_visualizer](https://github.com/UkoeHB/renet/tree/master/renet2_visualizer) with `F1` in the client.

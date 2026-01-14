@@ -16,5 +16,7 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 
 renet2 = { path = "../../renet2", default-features = false }
-renet2_netcode = { path = "../../renet2_netcode", default-features = false, features = ["native_transport"] }
+renet2_netcode = { path = "../../renet2_netcode", default-features = false, features = [
+  "native_transport",
+] }
 renetcode2 = { path = "../../renetcode2" }

@@ -87,6 +87,7 @@ impl GameServerSetupConfig {
     }
 
     #[cfg(feature = "ws_server_transport")]
+    #[allow(clippy::needless_return, reason = "needed when certain features are enabled")]
     pub fn get_ws_acceptor(&self) -> Result<renet2_netcode::WebSocketAcceptor, String> {
         let Some((cert_chain, privkey)) = &self.wss_certs else {
             return Ok(renet2_netcode::WebSocketAcceptor::Plain {

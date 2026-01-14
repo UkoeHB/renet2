@@ -196,7 +196,7 @@ impl ConnectMetas {
         match connection_type {
             ConnectionType::Memory | ConnectionType::Native => {
                 let Some(meta) = &self.native else {
-                    return Err(format!("no native connect meta for native client"));
+                    return Err("no native connect meta for native client".to_string());
                 };
                 meta.new_connect_token(current_time, client_id)
                     .map_err(|err| format!("failed constructing native connect token: {err:?}"))
@@ -210,12 +210,12 @@ impl ConnectMetas {
                     meta.new_connect_token(current_time, client_id)
                         .map_err(|err| format!("failed constructing wasm ws connect token for wasm client: {err:?}"))
                 } else {
-                    Err(format!("no wasm webtransport connect meta for wasm client"))
+                    Err("no wasm webtransport connect meta for wasm client".to_string())
                 }
             }
             ConnectionType::WasmWs => {
                 let Some(meta) = &self.wasm_ws else {
-                    return Err(format!("no wasm websocket connect meta for wasm client"));
+                    return Err("no wasm websocket connect meta for wasm client".to_string());
                 };
                 meta.new_connect_token(current_time, client_id)
                     .map_err(|err| format!("failed constructing wasm ws connect token for wasm client: {err:?}"))

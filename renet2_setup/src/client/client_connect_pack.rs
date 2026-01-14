@@ -70,10 +70,11 @@ impl ClientConnectPack {
                 }
 
                 #[cfg(not(all(target_family = "wasm", feature = "wt_client_transport")))]
-                return Err(format!(
+                return Err(
                     "ServerConnectToken::WasmWt can only be converted to ClientConnectPack in WASM with \
                     wt_client_transport feature"
-                ));
+                        .to_string(),
+                );
             }
             #[allow(unused_variables)]
             ServerConnectToken::WasmWs { token, url } => {
@@ -96,10 +97,11 @@ impl ClientConnectPack {
                 }
 
                 #[cfg(not(all(target_family = "wasm", feature = "ws_client_transport")))]
-                return Err(format!(
+                return Err(
                     "ServerConnectToken::WasmWs can only be converted to ClientConnectPack in WASM with \
                     ws_client_transport feature"
-                ));
+                        .to_string(),
+                );
             }
             #[cfg(feature = "memory_transport")]
             ServerConnectToken::Memory { token, client } => {

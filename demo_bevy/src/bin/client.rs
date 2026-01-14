@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
-use bevy_egui::{EguiContexts, EguiPlugin};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_renet2::prelude::{ClientId, RenetClient, RenetClientPlugin};
 use demo_bevy::{setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages};
 use renet2_visualizer::{RenetClientVisualizer, RenetVisualizerStyle};
@@ -44,7 +44,7 @@ fn add_netcode_network(app: &mut App) {
 
     app.configure_sets(Update, Connected.run_if(client_connected));
 
-    let client = RenetClient::new(connection_config());
+    let client = RenetClient::new(connection_config(), false);
 
     let server_addr = "127.0.0.1:5000".parse().unwrap();
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -66,7 +66,7 @@ fn add_netcode_network(app: &mut App) {
 
     // If any error is found we just panic
     #[allow(clippy::never_loop)]
-    fn panic_on_error_system(mut renet_error: EventReader<NetcodeTransportError>) {
+    fn panic_on_error_system(mut renet_error: MessageReader<NetcodeTransportError>) {
         for e in renet_error.read() {
             panic!("{}", e);
         }
@@ -90,7 +90,7 @@ fn add_steam_network(app: &mut App) {
     let server_steam_id: u64 = args[1].parse().unwrap();
     let server_steam_id = SteamId::from_raw(server_steam_id);
 
-    let client = RenetClient::new(connection_config());
+    let client = RenetClient::new(connection_config(), false);
     let transport = SteamClientTransport::new(&steam_client, &server_steam_id).unwrap();
 
     app.add_plugins(SteamClientPlugin);
@@ -109,7 +109,7 @@ fn add_steam_network(app: &mut App) {
 
     // If any error is found we just panic
     #[allow(clippy::never_loop)]
-    fn panic_on_error_system(mut renet_error: EventReader<SteamTransportError>) {
+    fn panic_on_error_system(mut renet_error: MessageReader<SteamTransportError>) {
         for e in renet_error.read() {
             panic!("{}", e);
         }
@@ -147,7 +147,7 @@ fn main() {
     app.insert_resource(RenetClientVisualizer::<200>::new(RenetVisualizerStyle::default()));
 
     app.add_systems(Startup, (setup_level, setup_camera, setup_target));
-    app.add_systems(Update, update_visualizer_system);
+    app.add_systems(EguiPrimaryContextPass, update_visualizer_system);
 
     app.run();
 }

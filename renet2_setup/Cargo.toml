@@ -1,17 +1,10 @@
 [package]
 name = "renet2_setup"
 version = "0.12.1"
-authors = [
-  "koe <ukoe@protonmail.com>",
-]
+authors = ["koe <ukoe@protonmail.com>"]
 edition = "2021"
 description = "Setup utilities for renet2"
-keywords = [
-  "multiplayer",
-  "netcode",
-  "replication",
-  "server-authoritative",
-]
+keywords = ["multiplayer", "netcode", "replication", "server-authoritative"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/UkoeHB/renet2"
 
@@ -25,8 +18,10 @@ serde = { version = "1.0" }
 serde_with = { version = "1.0" }
 url = { version = "2.4" }
 
-renet2 = {path = "../renet2", version = "0.12.1", default-features = false}
-renet2_netcode = {path = "../renet2_netcode", version = "0.12.1", optional = true, default-features = false, features = ["serde"]}
+renet2 = { path = "../renet2", version = "0.12.1", default-features = false }
+renet2_netcode = { path = "../renet2_netcode", version = "0.12.1", optional = true, default-features = false, features = [
+  "serde",
+] }
 
 bevy_ecs = { version = "0.17", optional = true }
 enfync = { version = "0.1", default-features = false, optional = true }
@@ -51,7 +46,7 @@ client_full = [
   "memory_transport",
   "native_transport",
   "wt_client_transport",
-  "ws_client_transport"
+  "ws_client_transport",
 ]
 # Enables all transports for servers.
 server_full = [
@@ -68,13 +63,28 @@ bevy = ["dep:bevy_ecs", "renet2/bevy", "renet2_netcode/bevy"]
 netcode = ["dep:renet2_netcode"]
 native_transport = ["netcode", "renet2_netcode/native_transport"]
 memory_transport = ["netcode", "renet2_netcode/memory_transport"]
-wt_server_transport = ["netcode", "renet2_netcode/wt_server_transport", "dep:enfync", "enfync/builtin"]
+wt_server_transport = [
+  "netcode",
+  "renet2_netcode/wt_server_transport",
+  "dep:enfync",
+  "enfync/builtin",
+]
 wt_client_transport = ["netcode", "renet2_netcode/wt_client_transport"]
-ws_server_transport = ["netcode", "renet2_netcode/ws_server_transport", "dep:enfync", "enfync/builtin"]
+ws_server_transport = [
+  "netcode",
+  "renet2_netcode/ws_server_transport",
+  "dep:enfync",
+  "enfync/builtin",
+]
 ws_client_transport = ["netcode", "renet2_netcode/ws_client_transport"]
 
 # Enables extracting websocket certs from file using native-tls. See GameServerSetupConfig.
 ws-native-tls = ["renet2_netcode/ws-native-tls", "dep:tokio-native-tls"]
 
 # Enables extracting websocket certs from file using rustls. See GameServerSetupConfig.
-ws-rustls = ["renet2_netcode/ws-rustls", "dep:rustls", "dep:rustls-pki-types", "rustls/ring"]
+ws-rustls = [
+  "renet2_netcode/ws-rustls",
+  "dep:rustls",
+  "dep:rustls-pki-types",
+  "rustls/ring",
+]

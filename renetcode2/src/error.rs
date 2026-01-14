@@ -28,7 +28,7 @@ pub enum NetcodeError {
     Expired,
     /// The client is disconnected.
     Disconnected(DisconnectReason),
-    /// An error ocurred while encrypting or decrypting.
+    /// An error occurred while encrypting or decrypting.
     CryptoError,
     /// The server address is not in the connect token.
     NotInHostList,
@@ -38,7 +38,7 @@ pub enum NetcodeError {
     ClientNotConnected,
     /// IO error.
     IoError(io::Error),
-    /// An error occured while generating the connect token.
+    /// An error occurred while generating the connect token.
     TokenGenerationError(TokenGenerationError),
 }
 

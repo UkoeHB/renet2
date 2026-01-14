@@ -6,12 +6,7 @@ notice = "deny"
 [licenses]
 copyleft = "deny"
 allow-osi-fsf-free = "either"
-allow = [ 
-    "MIT",
-    "Apache-2.0",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
- ]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"]
 
 [[licenses.clarify]]
 name = "stretch"
@@ -32,6 +27,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 
 allow-git = [
-    # Unreleased version for steamworks, need release with PR https://github.com/Noxime/steamworks-rs/pull/134
-    "https://github.com/Noxime/steamworks-rs"
+  # Unreleased version for steamworks, need release with PR https://github.com/Noxime/steamworks-rs/pull/134
+  "https://github.com/Noxime/steamworks-rs",
 ]

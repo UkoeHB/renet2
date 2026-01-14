@@ -127,9 +127,7 @@ pub fn setup_renet2_client(
 
             #[cfg(all(not(target_family = "wasm"), not(feature = "native_transport")))]
             {
-                return Err(format!(
-                    "failed setting up renet client with native connect pack; native_transport feature is required"
-                ));
+                Err("failed setting up renet client with native connect pack; native_transport feature is required".to_string())
             }
 
             #[cfg(all(not(target_family = "wasm"), feature = "native_transport"))]

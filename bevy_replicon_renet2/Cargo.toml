@@ -29,7 +29,9 @@ log = { version = "0.4" }
 
 [dev-dependencies]
 clap = { version = "4.1", features = ["derive"] }
-bevy_renet2 = { path = "../bevy_renet2", version = "0.12.1", features = ["native_transport"] }
+bevy_renet2 = { path = "../bevy_renet2", version = "0.12.1", features = [
+  "native_transport",
+] }
 bevy = { version = "0.17", default-features = false, features = [
   "bevy_log",
   "bevy_picking",
@@ -41,11 +43,15 @@ bevy = { version = "0.17", default-features = false, features = [
   "bevy_gizmos",
   "x11",
   "default_font",
-  "serialize"
+  "serialize",
 ] }
 serde = "1.0"
 log = "0.4"
-tracing-subscriber = { version = "0.3", features = [ "env-filter", "std", "tracing-log" ] }
+tracing-subscriber = { version = "0.3", features = [
+  "env-filter",
+  "std",
+  "tracing-log",
+] }
 
 [features]
 default = ["renet_serde", "netcode", "client", "server"]
@@ -68,5 +74,5 @@ ws-rustls = ["bevy_renet2/ws-rustls"]
 ws-native-tls = ["bevy_renet2/ws-native-tls"]
 
 [[test]]
-name = "transport"
+name = "netcode"
 required-features = ["native_transport", "client", "server"]

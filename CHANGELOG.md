@@ -1,5 +1,7 @@
 # CHANGELOG
 
+- Misc compile/clippy/formatting fixes.
+
 ## 0.12.1 - 01/03/26
 
 - Replace `doc_auto_cfg` with `doc_cfg`.
@@ -15,7 +17,7 @@
 ## 0.10.0 - 06/20/25
 
 - Update to `bevy_replicon` 0.34.
-    - Trigger disconnect when entities with `ConnectedClient` are despawned.
+  - Trigger disconnect when entities with `ConnectedClient` are despawned.
 
 ## 0.9.1 - 04/27/25
 
@@ -72,14 +74,14 @@
 ## 0.1.0 - 12/23/24
 
 - Update `renet2` sub-crate dependencies.
-    - `rustls`: 0.21 -> 0.23.5
-    - `quinn`: 0.10 -> 0.11.6
-    - `rcgen`: 0.12 -> 0.13
+  - `rustls`: 0.21 -> 0.23.5
+  - `quinn`: 0.10 -> 0.11.6
+  - `rcgen`: 0.12 -> 0.13
 - Split `TransportSocket` into separate `ServerSocket`/`ClientSocket` traits.
 - Add `webtransport_is_available()`/`webtransport_is_available_with_cert_hashes()` helpers for WASM clients.
 - Add support for reliable transport sockets.
-    - Add `TransportSocket::is_reliable`. It's true for in-memory sockets and WebSockets, and false for UDP and WebTransport.
-    - Add `has_reliable_socket` argument to `RenetClient::new`
+  - Add `TransportSocket::is_reliable`. It's true for in-memory sockets and WebSockets, and false for UDP and WebTransport.
+  - Add `has_reliable_socket` argument to `RenetClient::new`
 - Add WebSocket server and client. The client is WASM-only.
 - Replace `h3` dependency with `wtransport` for WebTransport backend.
 
@@ -123,12 +125,12 @@
 ## 0.0.1 - 03/29/2024
 
 - Forked from `renet`.
-    - Implement `Reflect` on `ClientId`. See [renet #130](https://github.com/lucaspoffo/renet/pull/130).
-    - Optimize `bevy_renet2` builds. See [renet #104](https://github.com/lucaspoffo/renet/pull/104).
-    - Refactor RenetClient so channels are accessed more efficiently. See [renet #154](https://github.com/lucaspoffo/renet/pull/154).
-    - Update `bevy_renet2` so client systems don't run when the client is disconnected. See [renet #134](https://github.com/lucaspoffo/renet/pull/134).
-    - Add `TransportSocket` trait for injecting the source of unreliable packets to netcode transports. See [renet #145](https://github.com/lucaspoffo/renet/pull/145).
-    - Add optional encryption to `renetcode2` to support sockets that handle encryption internally. See [renet #149](https://github.com/lucaspoffo/renet/pull/149).
-    - Refactor `NetcodeServer` to allow multiple underlying sockets. See [renet #150](https://github.com/lucaspoffo/renet/pull/150).
-    - Add memory-channels transport socket. See [renet #117](https://github.com/lucaspoffo/renet/pull/117).
-    - Add WebTransport server and client implementations of TransportSocket. See [renet #107](https://github.com/lucaspoffo/renet/pull/107).
+  - Implement `Reflect` on `ClientId`. See [renet #130](https://github.com/lucaspoffo/renet/pull/130).
+  - Optimize `bevy_renet2` builds. See [renet #104](https://github.com/lucaspoffo/renet/pull/104).
+  - Refactor RenetClient so channels are accessed more efficiently. See [renet #154](https://github.com/lucaspoffo/renet/pull/154).
+  - Update `bevy_renet2` so client systems don't run when the client is disconnected. See [renet #134](https://github.com/lucaspoffo/renet/pull/134).
+  - Add `TransportSocket` trait for injecting the source of unreliable packets to netcode transports. See [renet #145](https://github.com/lucaspoffo/renet/pull/145).
+  - Add optional encryption to `renetcode2` to support sockets that handle encryption internally. See [renet #149](https://github.com/lucaspoffo/renet/pull/149).
+  - Refactor `NetcodeServer` to allow multiple underlying sockets. See [renet #150](https://github.com/lucaspoffo/renet/pull/150).
+  - Add memory-channels transport socket. See [renet #117](https://github.com/lucaspoffo/renet/pull/117).
+  - Add WebTransport server and client implementations of TransportSocket. See [renet #107](https://github.com/lucaspoffo/renet/pull/107).

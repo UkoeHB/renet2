@@ -1,3 +1,5 @@
+#![allow(clippy::ptr_arg, reason = "`&mut Vec` needed when certain features are enabled")]
+
 use crate::common::{ConnectMetaNative, ConnectMetaWasmWs, ConnectMetaWasmWt, ConnectMetas, GameServerSetupConfig};
 use renet2::{ConnectionConfig, RenetServer};
 use renet2_netcode::{BoxedSocket, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig};
@@ -36,16 +38,17 @@ fn add_memory_socket(
     sockets: &mut Vec<BoxedSocket>,
     auth_key: &[u8; 32],
 ) -> Result<Option<crate::ConnectMetaMemory>, String> {
-    if memory_clients.len() == 0 {
+    if memory_clients.is_empty() {
         return Ok(None);
     }
 
     #[cfg(not(feature = "memory_transport"))]
     {
-        return Err(format!(
+        Err(
             "tried setting up renet2 server with in-memory clients, but memory_transport feature \
             is not enabled"
-        ));
+                .to_string(),
+        )
     }
 
     #[cfg(feature = "memory_transport")]
@@ -57,7 +60,7 @@ fn add_memory_socket(
             server_config: config.clone(),
             clients: client_sockets,
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
         };
 
         socket_addresses.push(addrs);
@@ -83,10 +86,9 @@ fn add_native_socket(
 
     #[cfg(not(feature = "native_transport"))]
     {
-        return Err(format!(
-            "tried setting up renet2 server with native clients, but native_transport feature \
+        Err("tried setting up renet2 server with native clients, but native_transport feature \
             is not enabled"
-        ));
+            .to_string())
     }
 
     #[cfg(feature = "native_transport")]
@@ -101,13 +103,13 @@ fn add_native_socket(
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 native socket: {err:?}"))?;
         let public_port = if config.native_port_proxy > 0 { config.native_port_proxy } else { local_addr.port() };
-        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), public_port)] } else { vec![local_addr] };
+        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy, public_port)] } else { vec![local_addr] };
 
         let meta = ConnectMetaNative {
             server_config: config.clone(),
             server_addresses: addrs.clone(),
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
         };
 
         log::info!("native renet2 socket; local addr = {}, public addr = {}", local_addr, addrs[0]);
@@ -135,10 +137,9 @@ fn add_wasm_wt_socket(
 
     #[cfg(not(feature = "wt_server_transport"))]
     {
-        return Err(format!(
-            "tried setting up renet2 server with wasm webtransport clients, but \
+        Err("tried setting up renet2 server with wasm webtransport clients, but \
             wt_server_transport feature is not enabled"
-        ));
+            .to_string())
     }
 
     #[cfg(feature = "wt_server_transport")]
@@ -155,13 +156,13 @@ fn add_wasm_wt_socket(
             .addr()
             .map_err(|err| format!("failed getting local addr for renet2 webtransport socket: {err:?}"))?;
         let public_port = if config.wasm_wt_port_proxy > 0 { config.wasm_wt_port_proxy } else { local_addr.port() };
-        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy.clone(), public_port)] } else { vec![local_addr] };
+        let addrs = if let Some(proxy) = config.proxy_ip { vec![SocketAddr::new(proxy, public_port)] } else { vec![local_addr] };
 
         let meta = ConnectMetaWasmWt {
             server_config: config.clone(),
             server_addresses: addrs.clone(),
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
             cert_hashes: vec![cert_hash],
         };
 
@@ -194,10 +195,11 @@ fn add_wasm_ws_socket(
 
     #[cfg(not(feature = "ws_server_transport"))]
     {
-        return Err(format!(
+        Err(
             "tried setting up renet2 server with wasm websocket clients, but ws_server_transport \
             feature is not enabled"
-        ));
+                .to_string(),
+        )
     }
 
     #[cfg(feature = "ws_server_transport")]
@@ -222,7 +224,7 @@ fn add_wasm_ws_socket(
             // Dummy public address when using a domain name.
             vec![SocketAddr::from(([0, 0, 0, 0], 0))]
         } else if let Some(proxy) = config.proxy_ip {
-            vec![SocketAddr::new(proxy.clone(), public_port)]
+            vec![SocketAddr::new(proxy, public_port)]
         } else {
             vec![local_addr]
         };
@@ -235,7 +237,7 @@ fn add_wasm_ws_socket(
             server_config: config.clone(),
             server_addresses: addrs.clone(),
             socket_id: sockets.len() as u8, // DO THIS BEFORE PUSHING SOCKET
-            auth_key: auth_key.clone(),
+            auth_key: *auth_key,
             url,
         };
 

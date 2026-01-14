@@ -17,6 +17,9 @@ warp = "0.3"
 
 renet2 = { path = "../../renet2", default-features = false }
 renet2_netcode = { path = "../../renet2_netcode", default-features = false, features = [
-    "serde", "native_transport", "wt_server_transport", "ws_server_transport"
+  "serde",
+  "native_transport",
+  "wt_server_transport",
+  "ws_server_transport",
 ] }
 renetcode2 = { path = "../../renetcode2" }
