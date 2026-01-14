@@ -613,9 +613,9 @@ impl NetcodeServer {
                                 Some((self.global_sequence, &pending.send_key)),
                                 self.sockets[socket_id].needs_encryption,
                             )?;
-                            pending.state = ConnectionState::Disconnected;
+                            // pending.state = ConnectionState::Disconnected;
                             self.global_sequence += 1;
-                            pending.last_packet_send_time = self.current_time;
+                            // pending.last_packet_send_time = self.current_time;
                             return Ok(ServerResult::ConnectionDenied {
                                 socket_id,
                                 addr,
