@@ -10,7 +10,14 @@ readme = "../README.md"
 repository = "https://github.com/UkoeHB/renet2"
 
 [package.metadata.docs.rs]
-features = ["default", "bevy", "serde", "memory_transport", "wt_server_transport", "ws_server_transport"]
+features = [
+  "default",
+  "bevy",
+  "serde",
+  "memory_transport",
+  "wt_server_transport",
+  "ws_server_transport",
+]
 rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 
 [features]
@@ -31,48 +38,48 @@ memory_transport = ["dep:crossbeam"]
 
 # Enable the WebTransport server transport
 wt_server_transport = [
-    "dep:crossbeam",
-    "dep:anyhow",
-    "dep:wtransport",
+  "dep:crossbeam",
+  "dep:anyhow",
+  "dep:wtransport",
 
-    "dep:rustls",
-    "dep:rustls-pki-types",
-    "dep:rcgen",
-    "dep:quinn",
-    "dep:http",
+  "dep:rustls",
+  "dep:rustls-pki-types",
+  "dep:rcgen",
+  "dep:quinn",
+  "dep:http",
 
-    "dep:tokio",
-    "dep:futures",
-    "dep:time",
-    #"dep:x509-cert",
-    #"dep:spki",
-    #"dep:base64",
-    "dep:urlencoding",
+  "dep:tokio",
+  "dep:futures",
+  "dep:time",
+  #"dep:x509-cert",
+  #"dep:spki",
+  #"dep:base64",
+  "dep:urlencoding",
 ]
 
 # Enable the WebTransport client transport (WASM only)
 wt_client_transport = [
-    "dep:async-channel",
-    "dep:fragile",
-    "dep:wasm-bindgen",
-    "dep:wasm-bindgen-futures",
-    "dep:futures",
-    "dep:js-sys",
-    "dep:send_wrapper",
-    "dep:web-sys",
-    "dep:urlencoding",
+  "dep:async-channel",
+  "dep:fragile",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "dep:futures",
+  "dep:js-sys",
+  "dep:send_wrapper",
+  "dep:web-sys",
+  "dep:urlencoding",
 ]
 
 # Enable the WebSocket server transport
 ws_server_transport = [
-    "dep:anyhow",
-    "dep:crossbeam",
-    "dep:tungstenite",
-    "dep:tokio",
-    "dep:tokio-tungstenite",
-    "dep:futures",
-    "dep:http",
-    "dep:urlencoding",
+  "dep:anyhow",
+  "dep:crossbeam",
+  "dep:tungstenite",
+  "dep:tokio",
+  "dep:tokio-tungstenite",
+  "dep:futures",
+  "dep:http",
+  "dep:urlencoding",
 ]
 
 # Enable rustls acceptors for WebSocket server transports.
@@ -83,17 +90,17 @@ ws-native-tls = ["dep:tokio-native-tls"]
 
 # Enable the WebSocket client transport (WASM only)
 ws_client_transport = [
-    "dep:anyhow",
-    "dep:async-channel",
-    "dep:wasm-bindgen",
-    "dep:wasm-bindgen-futures",
-    "dep:futures",
-    "dep:js-sys",
-    "dep:web-sys",
-    "dep:serde_json",
-    "dep:futures-util",
-    "dep:futures-channel",
-    "dep:urlencoding",
+  "dep:anyhow",
+  "dep:async-channel",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "dep:futures",
+  "dep:js-sys",
+  "dep:web-sys",
+  "dep:serde_json",
+  "dep:futures-util",
+  "dep:futures-channel",
+  "dep:urlencoding",
 ]
 
 [dependencies]
@@ -117,12 +124,15 @@ urlencoding = { version = "2.1", optional = true }
 
 # WebTransport server
 anyhow = { version = "1.0", optional = true }
-wtransport = { version = "0.6", optional = true, default-features = false, features = ["quinn", "self-signed"] }
-rustls = { version = "0.23.5", optional = true }  #locked to 0.23.5 until quinn updates
-rustls-pki-types = { version = "1.7", optional = true }  #locked to 1.7 until quinn updates
+wtransport = { version = "0.6", optional = true, default-features = false, features = [
+  "quinn",
+  "self-signed",
+] }
+rustls = { version = "0.23.5", optional = true } #locked to 0.23.5 until quinn updates
+rustls-pki-types = { version = "1.7", optional = true } #locked to 1.7 until quinn updates
 rcgen = { version = "0.13", optional = true }
 quinn = { version = "0.11.6", optional = true, default-features = false, features = [
-    "rustls-ring",
+  "rustls-ring",
 ] }
 http = { version = "1.0", optional = true }
 tokio = { version = "1.32", optional = true, features = ["full"] }
@@ -146,26 +156,28 @@ tokio-rustls = { version = "0.26.1", optional = true }
 tokio-native-tls = { version = "0.3.1", optional = true }
 
 # WebSocket client
-futures-util = { version = "0.3", optional = true, default-features = false, features = [ "std" ] }
+futures-util = { version = "0.3", optional = true, default-features = false, features = [
+  "std",
+] }
 futures-channel = { version = "0.3", optional = true }
 
 [dependencies.web-sys]
 version = "0.3"
 optional = true
 features = [
-    "DomException",
-    "ReadableStream",
-    "WritableStream",
-    "ReadableStreamDefaultReader",
-    "WritableStreamDefaultWriter",
-    "WebSocket",
-    "MessageEvent",
-    "CloseEvent",
-    "Event",
-    "ErrorEvent",
-    "BinaryType",
-    "Window",
-    "Navigator"
+  "DomException",
+  "ReadableStream",
+  "WritableStream",
+  "ReadableStreamDefaultReader",
+  "WritableStreamDefaultWriter",
+  "WebSocket",
+  "MessageEvent",
+  "CloseEvent",
+  "Event",
+  "ErrorEvent",
+  "BinaryType",
+  "Window",
+  "Navigator",
 ]
 
 [dev-dependencies]

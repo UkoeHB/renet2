@@ -28,7 +28,9 @@ getrandom = { version = "0.2", features = ["js"] }
 
 renet2 = { path = "../../renet2", default-features = false }
 renet2_netcode = { path = "../../renet2_netcode", default-features = false, features = [
-    "serde", "wt_client_transport", "ws_client_transport"
+  "serde",
+  "wt_client_transport",
+  "ws_client_transport",
 ] }
 renetcode2 = { path = "../../renetcode2" }
 
