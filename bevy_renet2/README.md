@@ -1,4 +1,5 @@
 # Bevy Renet
+
 [![Latest version](https://img.shields.io/crates/v/bevy_renet2.svg)](https://crates.io/crates/bevy_renet2)
 [![Documentation](https://docs.rs/bevy_renet2/badge.svg)](https://docs.rs/bevy_renet2)
 ![MIT](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -9,9 +10,11 @@ A network crate for Server/Client with cryptographically secure authentication a
 Designed for fast-paced competitive multiplayer games.
 
 ## Usage
+
 Bevy renet is a small layer over the `renet2` crate, it adds systems to call the update function from the client/server. `RenetClient`, `RenetServer`, `NetcodeClientTransport` and `NetcodeServerTransport` need to be added as a resource, so the setup is similar to `renet2` itself:
 
 #### Server
+
 ```rust
 let mut app = App::new();
 app.add_plugin(RenetServerPlugin);
@@ -70,6 +73,7 @@ fn handle_events_system(mut server_events: EventReader<ServerEvent>) {
 ```
 
 #### Client
+
 ```rust
 let mut app = App::new();
 app.add_plugin(RenetClientPlugin);
@@ -114,8 +118,8 @@ fn receive_message_system(mut client: ResMut<RenetClient>) {
 
 You can run the `simple` example with:
 
-* Server: `cargo run --features="serde native_transport" --example simple -- server`
-* Client: `cargo run --features="serde native_transport" --example simple -- client`
+- Server: `cargo run --features="serde native_transport" --example simple -- server`
+- Client: `cargo run --features="serde native_transport" --example simple -- client`
 
 If you want a more complex example you can checkout the [demo_bevy](https://github.com/UkoeHB/renet2/tree/master/demo_bevy) sample:
 
@@ -123,8 +127,9 @@ If you want a more complex example you can checkout the [demo_bevy](https://gith
 
 ## Bevy Compatibility
 
-|bevy|bevy_renet2  |
-|----|-------------|
-|0.17|0.11.0 - |
-|0.16|0.9.0 - 0.10.0|
-|0.15|0.0.7 - 0.8.1|
+| bevy | bevy_renet2     |
+| ---- | --------------- |
+| 0.18 | 0.13.0          |
+| 0.17 | 0.11.0 - 0.12.0 |
+| 0.16 | 0.9.0 - 0.10.0  |
+| 0.15 | 0.0.7 - 0.8.1   |
