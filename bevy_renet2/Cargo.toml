@@ -31,9 +31,9 @@ name = "simple"
 required-features = ["serde", "netcode"]
 
 [dependencies]
-bevy_app = { version = "0.17", default-features = false }
-bevy_ecs = { version = "0.17", default-features = false }
-bevy_time = { version = "0.17", default-features = false }
+bevy_app = { version = "0.18", default-features = false }
+bevy_ecs = { version = "0.18", default-features = false }
+bevy_time = { version = "0.18", default-features = false }
 renet2 = { path = "../renet2", version = "0.12.1", default-features = false, features = [
   "bevy",
 ] }
@@ -46,7 +46,7 @@ renet2_steam = { path = "../renet2_steam", version = "0.12.1", optional = true, 
 steamworks = { version = "0.11", optional = true }
 
 [dev-dependencies]
-bevy = { version = "0.17", default-features = false, features = [
+bevy = { version = "0.18", default-features = false, features = [
   "bevy_core_pipeline",
   "bevy_mesh",
   "bevy_render",

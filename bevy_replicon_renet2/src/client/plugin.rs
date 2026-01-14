@@ -65,7 +65,7 @@ fn receive_packets(
 ) {
     for channel_id in 0..channels.server_channels().len() as u8 {
         while let Some(message) = client.receive_message(channel_id) {
-            log::trace!("forwarding {} received bytes over channel {channel_id}", message.len());
+            trace!("forwarding {} received bytes over channel {channel_id}", message.len());
             messages.insert_received(channel_id, message);
         }
     }
@@ -78,7 +78,7 @@ fn receive_packets(
 
 fn send_packets(mut client: ResMut<RenetClient>, mut messages: ResMut<ClientMessages>) {
     for (channel_id, message) in messages.drain_sent() {
-        log::trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
+        trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
         client.send_message(channel_id as u8, message)
     }
 }

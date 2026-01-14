@@ -95,7 +95,7 @@ fn create_configs(channels: &[Channel]) -> Vec<ChannelConfig> {
             send_type,
         };
 
-        log::debug!("creating channel config `{config:?}`");
+        debug!("creating channel config `{config:?}`");
         channel_configs.push(config);
     }
     channel_configs

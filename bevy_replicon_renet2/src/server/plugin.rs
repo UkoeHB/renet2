@@ -66,14 +66,14 @@ fn process_server_events(mut commands: Commands, mut server_events: MessageReade
                         network_id,
                     ))
                     .id();
-                log::debug!("spawning client `{client_entity}` with `{network_id:?}`");
+                debug!("spawning client `{client_entity}` with `{network_id:?}`");
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 let network_id = NetworkId::new(*client_id);
                 if let Some(&client_entity) = network_map.get(&network_id) {
                     // Entity could have been despawned by user.
                     commands.entity(client_entity).despawn();
-                    log::debug!("despawning client `{client_entity}` with `{network_id:?}`: {reason}");
+                    debug!("despawning client `{client_entity}` with `{network_id:?}`: {reason}");
                 }
             }
         }
@@ -89,7 +89,7 @@ fn receive_packets(
     for (client_entity, network_id, mut stats) in &mut clients {
         for channel_id in 0..channels.client_channels().len() as u8 {
             while let Some(message) = server.receive_message(network_id.get(), channel_id) {
-                log::trace!("forwarding {} received bytes over channel {channel_id}", message.len());
+                trace!("forwarding {} received bytes over channel {channel_id}", message.len());
                 messages.insert_received(client_entity, channel_id, message);
             }
         }
@@ -106,7 +106,7 @@ fn receive_packets(
 
 fn send_packets(mut server: ResMut<RenetServer>, mut messages: ResMut<ServerMessages>, clients: Query<&NetworkId>) {
     for (client_entity, channel_id, message) in messages.drain_sent() {
-        log::trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
+        trace!("forwarding {} sent bytes over channel {channel_id}", message.len());
         let network_id = clients
             .get(client_entity)
             .expect("messages should be sent only to connected clients");
@@ -116,14 +116,14 @@ fn send_packets(mut server: ResMut<RenetServer>, mut messages: ResMut<ServerMess
 
 fn disconnect_by_request(mut commands: Commands, mut disconnects: MessageReader<DisconnectRequest>) {
     for disconnect in disconnects.read() {
-        log::debug!("despawning client `{}` by disconnect request", disconnect.client);
+        debug!("despawning client `{}` by disconnect request", disconnect.client);
         commands.entity(disconnect.client).despawn();
     }
 }
 
 fn disconnect_client(remove: On<Remove, ConnectedClient>, server: Option<ResMut<RenetServer>>, clients: Query<&NetworkId>) {
     if let Some(mut server) = server {
-        log::debug!("disconnecting despawned client `{}`", remove.entity);
+        debug!("disconnecting despawned client `{}`", remove.entity);
 
         let network_id = clients.get(remove.entity).expect("inserted on connection");
         server.disconnect(network_id.get());

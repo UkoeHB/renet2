@@ -22,28 +22,25 @@ all-features = true
 rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 
 [dependencies]
-bevy_replicon = { version = "0.37", default-features = false }
+bevy_replicon = { version = "0.38", default-features = false }
 bevy_renet2 = { path = "../bevy_renet2", version = "0.12.1", default-features = false }
-bevy = { version = "0.17", default-features = false }
-log = { version = "0.4" }
+bevy = { version = "0.18", default-features = false, features = ["bevy_log"] }
 
 [dev-dependencies]
 clap = { version = "4.1", features = ["derive"] }
 bevy_renet2 = { path = "../bevy_renet2", version = "0.12.1", features = [
   "native_transport",
 ] }
-bevy = { version = "0.17", default-features = false, features = [
-  "bevy_log",
-  "bevy_picking",
-  "bevy_ui_picking_backend",
+bevy = { version = "0.18", default-features = false, features = [
+  "bevy_gizmos",
   "bevy_state",
   "bevy_text",
-  "bevy_ui",
+  "bevy_ui_render",
   "bevy_window",
-  "bevy_gizmos",
-  "x11",
   "default_font",
   "serialize",
+  "ui_picking",
+  "x11",
 ] }
 serde = "1.0"
 log = "0.4"
