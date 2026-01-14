@@ -26,17 +26,15 @@ impl RenetChannelsExt for RepliconChannels {
     /// # Examples
     ///
     /// Configure event channels using
-    /// [`RemoteEventRegistry`](bevy_replicon::shared::event::remote_event_registry::RemoteEventRegistry):
+    /// [`RemoteMessageRegistry`](bevy_replicon::shared::message::registry::RemoteMessageRegistry):
     ///
     /// ```
     /// # use bevy::prelude::*;
-    /// # use bevy_replicon::{prelude::*, shared::event::remote_event_registry::RemoteEventRegistry};
+    /// # use bevy_replicon::{prelude::*, shared::message::registry::RemoteMessageRegistry};
     /// # use bevy_replicon_renet2::RenetChannelsExt;
-    /// # let channels = RepliconChannels::default();
-    /// # let registry = RemoteEventRegistry::default();
-    /// fn init(channels: Res<RepliconChannels>, event_registry: Res<RemoteEventRegistry>) {
+    /// fn init(channels: Res<RepliconChannels>, registry: Res<RemoteMessageRegistry>) {
     ///     let mut server_configs = channels.server_configs();
-    ///     let fire_id = event_registry.server_channel::<Fire>().unwrap();
+    ///     let fire_id = registry.server_event_channel::<Fire>().unwrap();
     ///     let fire_channel = &mut server_configs[fire_id];
     ///     fire_channel.max_memory_usage_bytes = 2048;
     ///     // Use `server_configs` to create `RenetServer`.
@@ -50,7 +48,7 @@ impl RenetChannelsExt for RepliconChannels {
     ///
     /// ```
     /// # use bevy::prelude::*;
-    /// # use bevy_replicon::{prelude::*, shared::backend::replicon_channels::ServerChannel};
+    /// # use bevy_replicon::{prelude::*, shared::backend::channels::ServerChannel};
     /// # use bevy_replicon_renet2::RenetChannelsExt;
     /// # let channels = RepliconChannels::default();
     /// let mut server_configs = channels.server_configs();
