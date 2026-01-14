@@ -2,17 +2,17 @@ name: Main
 on:
   push:
     branches-ignore:
-      - 'releases/**'
-      - 'dependabot/**'
+      - "releases/**"
+      - "dependabot/**"
     paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - '.github/dependabot.yml'
+      - "**.md"
+      - ".gitignore"
+      - ".github/dependabot.yml"
   pull_request:
     paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - '.github/dependabot.yml'
+      - "**.md"
+      - ".gitignore"
+      - ".github/dependabot.yml"
 env:
   CARGO_TERM_COLOR: always
 jobs:
