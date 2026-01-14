@@ -5,7 +5,7 @@ use bevy_renet2::prelude::{ChannelConfig, ClientId, ConnectionConfig, SendType};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "netcode")]
-pub const PRIVATE_KEY: &[u8; bevy_renet2::prelude::NETCODE_KEY_BYTES] = b"an example very very secret key."; // 32-bytes
+pub const PRIVATE_KEY: &[u8; bevy_renet2::netcode::NETCODE_KEY_BYTES] = b"an example very very secret key."; // 32-bytes
 #[cfg(feature = "netcode")]
 pub const PROTOCOL_ID: u64 = 7;
 
