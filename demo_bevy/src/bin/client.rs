@@ -44,7 +44,7 @@ fn add_netcode_network(app: &mut App) {
 
     app.configure_sets(Update, Connected.run_if(client_connected));
 
-    let client = RenetClient::new(connection_config());
+    let client = RenetClient::new(connection_config(), false);
 
     let server_addr = "127.0.0.1:5000".parse().unwrap();
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
