@@ -1,5 +1,6 @@
 # CHANGELOG
 
+- Update to `bevy` 0.18 and `bevy_replicon` 0.38.
 - Misc compile/clippy/formatting fixes.
 
 ## 0.12.1 - 01/03/26
