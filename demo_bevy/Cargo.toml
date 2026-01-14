@@ -13,7 +13,18 @@ netcode = ["bevy_renet2/netcode", "bevy_renet2/native_transport"]
 steam = ["bevy_renet2/steam"]
 
 [dependencies]
-bevy = { version = "0.17", default-features = true }
+bevy = { version = "0.17", default-features = false, features = [
+  "bevy_asset",
+  "bevy_core_pipeline",
+  "bevy_pbr",
+  "bevy_render",
+  "bevy_window",
+  "ktx2",
+  "serialize",
+  "tonemapping_luts",
+  "x11",
+  "zstd_rust",
+] }
 bevy_renet2 = { path = "../bevy_renet2", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
