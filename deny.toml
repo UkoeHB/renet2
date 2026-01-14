@@ -1,32 +1,41 @@
-[advisories]
-unmaintained = "deny"
-yanked = "deny"
-notice = "deny"
-
 [licenses]
-copyleft = "deny"
-allow-osi-fsf-free = "either"
-allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"]
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "OFL-1.1",
+  "OpenSSL",
+  "Ubuntu-font-1.0",
+  "Unicode-3.0",
+  "Zlib",
+]
 
-[[licenses.clarify]]
-name = "stretch"
-expression = "MIT"
-license-files = []
-
-[[licenses.exceptions]]
-# https://github.com/emilk/egui/issues/2321
-allow = ["LicenseRef-UFL-1.0"]
-name = "epaint"
+[advisories]
+version = 2
+ignore = [
+  "RUSTSEC-2024-0436",
+  "RUSTSEC-2025-0134",
+  "RUSTSEC-2024-0384",
+  "RUSTSEC-2025-0141",
+]
 
 [bans]
-multiple-versions = "allow"
-wildcards = "allow"
-
-[sources]
-unknown-registry = "deny"
-unknown-git = "deny"
-
-allow-git = [
-  # Unreleased version for steamworks, need release with PR https://github.com/Noxime/steamworks-rs/pull/134
-  "https://github.com/Noxime/steamworks-rs",
+skip-tree = ["bevy"]
+# TODO: Update dependencies to avoid duplicates.
+skip = [
+  "socket2",
+  "tungstenite",
+  "tokio-tungstenite",
+  "security-framework",
+  "openssl-probe",
+  "hyper",
+  "http-body",
+  "http",
+  "h2",
+  "base64",
 ]
