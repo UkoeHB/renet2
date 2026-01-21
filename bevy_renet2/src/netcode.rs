@@ -45,7 +45,7 @@ impl NetcodeServerPlugin {
     pub fn update_system(
         mut transport: ResMut<NetcodeServerTransport>,
         mut server: ResMut<RenetServer>,
-        time: Res<Time>,
+        time: Res<Time<Real>>,
         mut transport_errors: MessageWriter<NetcodeTransportError>,
     ) {
         if let Err(e) = transport.update(time.delta(), &mut server) {
@@ -103,7 +103,7 @@ impl NetcodeClientPlugin {
     pub fn update_system(
         mut transport: ResMut<NetcodeClientTransport>,
         mut client: ResMut<RenetClient>,
-        time: Res<Time>,
+        time: Res<Time<Real>>,
         mut transport_errors: MessageWriter<NetcodeTransportError>,
     ) {
         if let Err(e) = transport.update(time.delta(), &mut client) {
