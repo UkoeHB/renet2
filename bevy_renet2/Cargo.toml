@@ -1,7 +1,7 @@
 [package]
 name = "bevy_renet2"
 description = "Bevy plugin for the renet2 crate"
-version = "0.13.0"
+version = "0.13.1"
 edition = "2021"
 keywords = ["gamedev", "networking"]
 license = "MIT OR Apache-2.0"
