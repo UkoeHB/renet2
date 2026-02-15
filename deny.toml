@@ -1,4 +1,5 @@
 [licenses]
+private = { ignore = true }
 allow = [
   "Apache-2.0",
   "BSD-2-Clause",
@@ -31,8 +32,6 @@ skip = [
   "socket2",
   "tungstenite",
   "tokio-tungstenite",
-  "security-framework",
-  "openssl-probe",
   "hyper",
   "http-body",
   "http",
