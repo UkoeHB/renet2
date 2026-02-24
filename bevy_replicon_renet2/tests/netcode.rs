@@ -3,7 +3,7 @@ use std::{
     time::SystemTime,
 };
 
-use bevy::{ecs::schedule::ScheduleLabel, prelude::*, state::app::StatesPlugin};
+use bevy::{prelude::*, state::app::StatesPlugin};
 use bevy_renet2::{
     netcode::{
         ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
