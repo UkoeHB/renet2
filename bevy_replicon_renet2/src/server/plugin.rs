@@ -84,7 +84,7 @@ fn receive_packets(
     channels: Res<RepliconChannels>,
     mut server: ResMut<RenetServer>,
     mut messages: ResMut<ServerMessages>,
-    mut clients: Query<(Entity, &NetworkId, &mut ClientStats)>,
+    mut clients: Query<(Entity, &NetworkId, &mut ConnectedClientStats)>,
 ) {
     for (client_entity, network_id, mut stats) in &mut clients {
         for channel_id in 0..channels.client_channels().len() as u8 {

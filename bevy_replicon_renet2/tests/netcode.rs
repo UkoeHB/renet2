@@ -22,10 +22,7 @@ fn connect_disconnect() {
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            RepliconPlugins.set(ServerPlugin {
-                tick_schedule: PostUpdate.intern(),
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
         .finish();
@@ -70,10 +67,7 @@ fn disconnect_request() {
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            RepliconPlugins.set(ServerPlugin {
-                tick_schedule: PostUpdate.intern(),
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
         .add_server_message::<Test>(Channel::Ordered)
@@ -112,8 +106,8 @@ fn disconnect_request() {
     let messages = client_app.world().resource::<Messages<Test>>();
     assert_eq!(messages.len(), 1, "last message should be received");
 
-    let mut replicated = client_app.world_mut().query::<&Replicated>();
-    assert_eq!(replicated.iter(client_app.world()).len(), 1, "last replication should be received");
+    let mut remote = client_app.world_mut().query::<&Remote>();
+    assert_eq!(remote.iter(client_app.world()).len(), 1, "last replication should be received");
 }
 
 #[test]
@@ -124,10 +118,7 @@ fn server_stop() {
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            RepliconPlugins.set(ServerPlugin {
-                tick_schedule: PostUpdate.intern(),
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
         .add_server_message::<Test>(Channel::Ordered)
@@ -175,11 +166,11 @@ fn server_stop() {
     assert_eq!(*client_state, ClientState::Disconnected);
 
     let messages = client_app.world().resource::<Messages<Test>>();
-    assert!(messages.is_empty(), "message after stop shouldn't be received");
+    assert!(messages.is_empty(), "message shouldn't be received after stop");
 
-    let mut replicated = client_app.world_mut().query::<&Replicated>();
+    let mut remote = client_app.world_mut().query::<&Remote>();
     assert_eq!(
-        replicated.iter(client_app.world()).len(),
+        remote.iter(client_app.world()).len(),
         0,
         "replication after stop shouldn't be received"
     );
@@ -193,10 +184,7 @@ fn replication() {
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            RepliconPlugins.set(ServerPlugin {
-                tick_schedule: PostUpdate.intern(),
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
         .finish();
@@ -209,8 +197,8 @@ fn replication() {
     server_app.update();
     client_app.update();
 
-    let mut replicated = client_app.world_mut().query::<&Replicated>();
-    assert_eq!(replicated.iter(client_app.world()).len(), 1);
+    let mut remote = client_app.world_mut().query::<&Remote>();
+    assert_eq!(remote.iter(client_app.world()).len(), 1);
 }
 
 #[test]
@@ -221,10 +209,7 @@ fn server_message() {
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            RepliconPlugins.set(ServerPlugin {
-                tick_schedule: PostUpdate.intern(),
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
         .add_server_message::<Test>(Channel::Ordered)
@@ -253,10 +238,7 @@ fn client_message() {
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
-            RepliconPlugins.set(ServerPlugin {
-                tick_schedule: PostUpdate.intern(),
-                ..Default::default()
-            }),
+            RepliconPlugins.set(ServerPlugin::new(PostUpdate)),
             RepliconRenetPlugins,
         ))
         .add_client_message::<Test>(Channel::Ordered)
@@ -270,8 +252,8 @@ fn client_message() {
     client_app.update();
     server_app.update();
 
-    let client_messages = server_app.world().resource::<Messages<FromClient<Test>>>();
-    assert_eq!(client_messages.len(), 1);
+    let messages = server_app.world().resource::<Messages<FromClient<Test>>>();
+    assert_eq!(messages.len(), 1);
 }
 
 fn setup(server_app: &mut App, client_app: &mut App) {
