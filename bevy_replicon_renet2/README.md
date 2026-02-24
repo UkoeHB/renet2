@@ -8,6 +8,7 @@ Run tests with `cargo test --features native_transport,client,server`.
 
 | bevy_replicon_renet2 | bevy_renet2 | bevy_replicon | bevy   |
 | -------------------- | ----------- | ------------- | ------ |
+| 0.14                 | 0.13        | 0.39          | 0.18   |
 | 0.13                 | 0.13        | 0.38          | 0.18   |
 | 0.12                 | 0.12        | 0.37          | 0.17   |
 | 0.11                 | 0.11        | 0.36          | 0.17   |

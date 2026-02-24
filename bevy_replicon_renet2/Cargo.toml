@@ -1,6 +1,6 @@
 [package]
 name = "bevy_replicon_renet2"
-version = "0.13.0"
+version = "0.14.0"
 authors = [
   "Hennadii Chernyshchyk <genaloner@gmail.com>",
   "koe <ukoe@protonmail.com>",
