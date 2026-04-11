@@ -55,14 +55,24 @@ impl ConnectionConfig {
     /// Used when setting up a client that has a socket with built-in reliability (such as WebSockets).
     pub fn downgrade_to_unreliable(&mut self) {
         self.server_channels_config.iter_mut().for_each(|c| {
-            c.send_type = SendType::Unreliable {
-                ordered_reliable_substrate: true,
-            };
+            match c.send_type {
+                SendType::Unreliable { .. } => (),
+                _ => {
+                    c.send_type = SendType::Unreliable {
+                        ordered_reliable_substrate: ordered_reliable,
+                    };
+                }
+            }
         });
         self.client_channels_config.iter_mut().for_each(|c| {
-            c.send_type = SendType::Unreliable {
-                ordered_reliable_substrate: true,
-            };
+            match c.send_type {
+                SendType::Unreliable { .. } => (),
+                _ => {
+                    c.send_type = SendType::Unreliable {
+                        ordered_reliable_substrate: ordered_reliable,
+                    };
+                }
+            }
         });
     }
 }
