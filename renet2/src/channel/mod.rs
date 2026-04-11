@@ -10,7 +10,10 @@ pub(crate) use slice_constructor::SliceConstructor;
 #[derive(Debug, Clone)]
 pub enum SendType {
     // Messages can be lost or received out of order.
-    Unreliable,
+    Unreliable {
+        // Should only be `true` if they underlying transport is ordered and reliable (e.g. WebSockets or in-memory channels).
+        ordered_reliable_substrate: bool,
+    },
     /// Messages are guaranteed to be received and in the same order they were sent.
     ReliableOrdered {
         resend_time: Duration,
@@ -60,7 +63,7 @@ impl DefaultChannel {
             ChannelConfig {
                 channel_id: 0,
                 max_memory_usage_bytes: 5 * 1024 * 1024,
-                send_type: SendType::Unreliable,
+                send_type: SendType::Unreliable{ ordered_reliable_substrate: false },
             },
             ChannelConfig {
                 channel_id: 1,
