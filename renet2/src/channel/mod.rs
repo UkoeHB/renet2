@@ -15,13 +15,9 @@ pub enum SendType {
         ordered_reliable_substrate: bool,
     },
     /// Messages are guaranteed to be received and in the same order they were sent.
-    ReliableOrdered {
-        resend_time: Duration,
-    },
+    ReliableOrdered { resend_time: Duration },
     /// Messages are guaranteed to be received but may be in an different order that they were sent.
-    ReliableUnordered {
-        resend_time: Duration,
-    },
+    ReliableUnordered { resend_time: Duration },
 }
 
 /// Configuration of a channel for a server or client
@@ -63,7 +59,9 @@ impl DefaultChannel {
             ChannelConfig {
                 channel_id: 0,
                 max_memory_usage_bytes: 5 * 1024 * 1024,
-                send_type: SendType::Unreliable{ ordered_reliable_substrate: false },
+                send_type: SendType::Unreliable {
+                    ordered_reliable_substrate: false,
+                },
             },
             ChannelConfig {
                 channel_id: 1,
