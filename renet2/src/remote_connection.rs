@@ -50,7 +50,7 @@ impl ConnectionConfig {
         Self::from_shared_channels(DefaultChannel::config())
     }
 
-    /// Downgrades all channels to [`SendType::Unreliable`] with `ordered_reliable_substrate = true`.
+    /// Downgrades all reliable channels to [`SendType::Unreliable`] with `ordered_reliable_substrate = true`.
     ///
     /// Used when setting up a client that has a socket with built-in reliability (such as WebSockets).
     pub fn downgrade_to_unreliable(&mut self) {
@@ -58,7 +58,7 @@ impl ConnectionConfig {
             SendType::Unreliable { .. } => (),
             _ => {
                 c.send_type = SendType::Unreliable {
-                    ordered_reliable_substrate: ordered_reliable,
+                    ordered_reliable_substrate: true,
                 };
             }
         });
@@ -66,7 +66,7 @@ impl ConnectionConfig {
             SendType::Unreliable { .. } => (),
             _ => {
                 c.send_type = SendType::Unreliable {
-                    ordered_reliable_substrate: ordered_reliable,
+                    ordered_reliable_substrate: true,
                 };
             }
         });

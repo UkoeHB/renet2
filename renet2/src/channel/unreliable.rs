@@ -66,7 +66,7 @@ impl SendChannelUnreliable {
         while let Some(message) = self.unreliable_messages.pop_front() {
             self.memory_usage_bytes -= message.len();
             if *available_bytes < message.len() as u64 || overflow_trigger {
-                // Drop or save message, no available bytes to send
+                // Drop or save message, no available bytes to send.
                 if (self.ordered_reliable_substrate) {
                     overflow_messages.push(message);
                     // Once this is triggered, we stop sending messages so the 'ordered' setting can be maintained.

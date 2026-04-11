@@ -2,7 +2,7 @@
 
 ## WIP
 
-- Do not discard messages with using unreliable renet2 channels on top of a reliable transport like WebSockets.
+- Do not discard messages with using unreliable renet2 channels on top of a reliable transport like WebSockets when reliability is required.
 
 ## 0.13.0 - 01/15/26
 
