@@ -50,15 +50,25 @@ impl ConnectionConfig {
         Self::from_shared_channels(DefaultChannel::config())
     }
 
-    /// Downgrades all channels to [`SendType::Unreliable`].
+    /// Downgrades all reliable channels to [`SendType::Unreliable`] with `ordered_reliable_substrate = true`.
     ///
     /// Used when setting up a client that has a socket with built-in reliability (such as WebSockets).
     pub fn downgrade_to_unreliable(&mut self) {
-        self.server_channels_config.iter_mut().for_each(|c| {
-            c.send_type = SendType::Unreliable;
+        self.server_channels_config.iter_mut().for_each(|c| match c.send_type {
+            SendType::Unreliable { .. } => (),
+            _ => {
+                c.send_type = SendType::Unreliable {
+                    ordered_reliable_substrate: true,
+                };
+            }
         });
-        self.client_channels_config.iter_mut().for_each(|c| {
-            c.send_type = SendType::Unreliable;
+        self.client_channels_config.iter_mut().for_each(|c| match c.send_type {
+            SendType::Unreliable { .. } => (),
+            _ => {
+                c.send_type = SendType::Unreliable {
+                    ordered_reliable_substrate: true,
+                };
+            }
         });
     }
 }
@@ -198,9 +208,15 @@ impl RenetClient {
             );
 
             match channel_config.send_type {
-                SendType::Unreliable => {
+                SendType::Unreliable {
+                    ordered_reliable_substrate,
+                } => {
                     channel_send_order.push(ChannelOrder::Unreliable(channel_config.channel_id));
-                    let channel = SendChannelUnreliable::new(channel_config.channel_id, channel_config.max_memory_usage_bytes);
+                    let channel = SendChannelUnreliable::new(
+                        channel_config.channel_id,
+                        channel_config.max_memory_usage_bytes,
+                        ordered_reliable_substrate,
+                    );
                     *send_channel = SendChannel::Unreliable(channel);
                 }
                 SendType::ReliableOrdered { resend_time } | SendType::ReliableUnordered { resend_time } => {
@@ -222,7 +238,7 @@ impl RenetClient {
             );
 
             match channel_config.send_type {
-                SendType::Unreliable => {
+                SendType::Unreliable { .. } => {
                     let channel = ReceiveChannelUnreliable::new(channel_config.channel_id, channel_config.max_memory_usage_bytes);
                     *receive_channel = ReceiveChannel::Unreliable(channel);
                 }

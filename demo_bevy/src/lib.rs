@@ -97,7 +97,9 @@ impl ServerChannel {
             ChannelConfig {
                 channel_id: Self::NetworkedEntities.into(),
                 max_memory_usage_bytes: 10 * 1024 * 1024,
-                send_type: SendType::Unreliable,
+                send_type: SendType::Unreliable {
+                    ordered_reliable_substrate: false,
+                },
             },
             ChannelConfig {
                 channel_id: Self::ServerMessages.into(),

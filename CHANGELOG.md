@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## WIP
+
+- Do not discard messages with using unreliable renet2 channels on top of a reliable transport like WebSockets when reliability is required.
+
 ## 0.13.0 - 01/15/26
 
 - Update to `bevy` 0.18 and `bevy_replicon` 0.38.

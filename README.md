@@ -62,7 +62,10 @@ Each channel has its own configuration `ChannelConfig`:
 
 ```rust
 // No guarantee of message delivery or order
-let send_type = SendType::Unreliable;
+let send_type = SendType::Unreliable {
+    // For e.g. WebSocket transports.
+    ordered_reliable_substrate: false
+};
 // Guarantee of message delivery and order
 let send_type = SendType::ReliableOrdered {
     // If a message is lost, it will be resent after this duration

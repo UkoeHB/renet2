@@ -81,7 +81,9 @@ fn create_configs(channels: &[Channel]) -> Vec<ChannelConfig> {
     let mut channel_configs = Vec::with_capacity(channels.len());
     for (index, &channel) in channels.iter().enumerate() {
         let send_type = match channel {
-            Channel::Unreliable => SendType::Unreliable,
+            Channel::Unreliable => SendType::Unreliable {
+                ordered_reliable_substrate: false,
+            },
             Channel::Unordered => SendType::ReliableUnordered {
                 resend_time: Duration::from_millis(300),
             },

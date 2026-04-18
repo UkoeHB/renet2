@@ -18,6 +18,11 @@ pub struct SendChannelUnreliable {
     sliced_message_id: u64,
     max_memory_usage_bytes: usize,
     memory_usage_bytes: usize,
+    // If the underlying networking substrate is ordered-reliable (e.g. WebSockets), then renet2
+    // can use unreliable channels to avoid redundant message acking. This setting ensures
+    // unreliable channels will behave like reliable channels by not dropping messages when
+    // there are too many bytes to send in one tick.
+    ordered_reliable_substrate: bool,
 }
 
 #[derive(Debug)]
@@ -31,13 +36,14 @@ pub struct ReceiveChannelUnreliable {
 }
 
 impl SendChannelUnreliable {
-    pub fn new(channel_id: u8, max_memory_usage_bytes: usize) -> Self {
+    pub fn new(channel_id: u8, max_memory_usage_bytes: usize, ordered_reliable_substrate: bool) -> Self {
         Self {
             channel_id,
             unreliable_messages: VecDeque::new(),
             sliced_message_id: 0,
             max_memory_usage_bytes,
             memory_usage_bytes: 0,
+            ordered_reliable_substrate,
         }
     }
 
@@ -54,10 +60,18 @@ impl SendChannelUnreliable {
         let mut small_messages: Vec<Bytes> = vec![];
         let mut small_messages_bytes = 0;
 
+        let mut overflow_messages = vec![];
+        let mut overflow_trigger = false;
+
         while let Some(message) = self.unreliable_messages.pop_front() {
             self.memory_usage_bytes -= message.len();
-            if *available_bytes < message.len() as u64 {
-                // Drop message, no available bytes to send
+            if *available_bytes < message.len() as u64 || overflow_trigger {
+                // Drop or save message, no available bytes to send.
+                if self.ordered_reliable_substrate {
+                    overflow_messages.push(message);
+                    // Once this is triggered, we stop sending messages so the 'ordered' setting can be maintained.
+                    overflow_trigger = true;
+                }
                 continue;
             }
 
@@ -101,6 +115,11 @@ impl SendChannelUnreliable {
                 small_messages_bytes += serialized_size;
                 small_messages.push(message);
             }
+        }
+
+        for message in overflow_messages {
+            self.memory_usage_bytes += message.len();
+            self.unreliable_messages.push_front(message);
         }
 
         // Generate final packet for remaining small messages
@@ -236,7 +255,7 @@ mod tests {
         let mut available_bytes = u64::MAX;
         let mut sequence: u64 = 0;
         let mut recv = ReceiveChannelUnreliable::new(0, max_memory);
-        let mut send = SendChannelUnreliable::new(0, max_memory);
+        let mut send = SendChannelUnreliable::new(0, max_memory, false);
 
         let message1 = vec![1, 2, 3];
         let message2 = vec![3, 4, 5];
@@ -272,7 +291,7 @@ mod tests {
         let mut sequence: u64 = 0;
         let current_time = Duration::ZERO;
         let mut recv = ReceiveChannelUnreliable::new(0, max_memory);
-        let mut send = SendChannelUnreliable::new(0, max_memory);
+        let mut send = SendChannelUnreliable::new(0, max_memory, false);
 
         let message = vec![5; SLICE_SIZE * 3];
 
@@ -300,7 +319,7 @@ mod tests {
         let mut sequence: u64 = 0;
         let mut available_bytes = u64::MAX;
         let mut recv = ReceiveChannelUnreliable::new(0, 50);
-        let mut send = SendChannelUnreliable::new(0, 40);
+        let mut send = SendChannelUnreliable::new(0, 40, false);
 
         let message = vec![5; 50];
 
@@ -327,7 +346,7 @@ mod tests {
     #[test]
     fn available_bytes() {
         let mut sequence: u64 = 0;
-        let mut send = SendChannelUnreliable::new(0, usize::MAX);
+        let mut send = SendChannelUnreliable::new(0, usize::MAX, false);
 
         let message: Bytes = vec![0u8; 100].into();
         send.send_message(message.clone());
@@ -360,7 +379,7 @@ mod tests {
     fn small_packet_max_size() {
         let mut sequence: u64 = 0;
         let mut available_bytes = u64::MAX;
-        let mut send = SendChannelUnreliable::new(0, usize::MAX);
+        let mut send = SendChannelUnreliable::new(0, usize::MAX, false);
 
         // 4 bytes
         let message: Bytes = vec![0, 1, 2, 3].into();
