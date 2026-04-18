@@ -9,10 +9,10 @@ pub(crate) use slice_constructor::SliceConstructor;
 /// Delivery guarantee of a channel
 #[derive(Debug, Clone)]
 pub enum SendType {
-    // Messages can be lost or received out of order.
+    /// Messages can be lost or received out of order.
     Unreliable {
-        // Should only be `true` if the underlying transport is ordered and reliable (e.g. WebSockets or in-memory channels)
-        // and reliability is desired. Can be set to `false` if reliability is not required.`
+        /// Should only be `true` if the underlying transport is ordered and reliable (e.g. WebSockets or in-memory channels)
+        /// and reliability is desired. Can be set to `false` if reliability is not required.`
         ordered_reliable_substrate: bool,
     },
     /// Messages are guaranteed to be received and in the same order they were sent.
