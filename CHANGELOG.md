@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## WIP
+## 0.14.0 - 04/18/26
 
 - Do not discard messages with using unreliable renet2 channels on top of a reliable transport like WebSockets when reliability is required.
 
