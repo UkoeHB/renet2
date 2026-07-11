@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.16.0 - 07/11/26
+
+- Update to `bevy` v0.19.
+- Update to `bevy_replicon` v0.41.
+
 ## 0.15.0 - 05/24/26
 
 - Update to `steamworks` v0.13.
