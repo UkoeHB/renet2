@@ -20,7 +20,7 @@ impl Plugin for RepliconRenetClientPlugin {
                     set_connected.run_if(
                         // Ensure we transition from "connecting" to "connected,"
                         // even if the transport reports "connected" right away.
-                        in_state(ClientState::Connecting).and(bevy_renet2::prelude::client_connected),
+                        in_state(ClientState::Connecting).and_then(bevy_renet2::prelude::client_connected),
                     ),
                     set_disconnected.run_if(bevy_renet2::prelude::client_just_disconnected),
                     receive_packets.run_if(bevy_renet2::prelude::client_connected),

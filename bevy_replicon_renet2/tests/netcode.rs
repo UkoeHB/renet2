@@ -129,7 +129,7 @@ fn server_stop() {
 
     server_app.world_mut().spawn(Replicated);
     server_app.world_mut().write_message(ToClients {
-        targets: SendTargets::Broadcast,
+        targets: SendTargets::All,
         message: Test,
     });
 

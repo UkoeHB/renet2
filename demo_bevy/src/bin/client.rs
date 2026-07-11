@@ -100,7 +100,7 @@ fn add_steam_network(app: &mut App) {
 
     app.configure_sets(Update, Connected.run_if(client_connected));
 
-    app.insert_non_send_resource(steam_client.clone());
+    app.insert_non_send(steam_client.clone());
     fn steam_callbacks(client: NonSend<Client>) {
         client.run_callbacks();
     }
@@ -135,7 +135,6 @@ fn main() {
     app.add_message::<PlayerCommand>();
 
     app.insert_resource(ClientLobby::default());
-    app.insert_resource(PlayerInput::default());
     app.insert_resource(NetworkMapping::default());
 
     app.add_systems(Update, (player_input, camera_follow, update_target_system));
@@ -146,10 +145,14 @@ fn main() {
 
     app.insert_resource(RenetClientVisualizer::<200>::new(RenetVisualizerStyle::default()));
 
-    app.add_systems(Startup, (setup_level, setup_camera, setup_target));
+    app.add_systems(Startup, (setup_level, setup_camera, setup_target, setup_player_input));
     app.add_systems(EguiPrimaryContextPass, update_visualizer_system);
 
     app.run();
+}
+
+fn setup_player_input(mut commands: Commands) {
+    commands.spawn(PlayerInput::default());
 }
 
 fn update_visualizer_system(
@@ -170,7 +173,7 @@ fn update_visualizer_system(
 
 fn player_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut player_input: ResMut<PlayerInput>,
+    mut player_input: Single<&mut PlayerInput>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     target_query: Query<&Transform, With<Target>>,
     mut player_commands: MessageWriter<PlayerCommand>,
@@ -188,7 +191,7 @@ fn player_input(
     }
 }
 
-fn client_send_input(player_input: Res<PlayerInput>, mut client: ResMut<RenetClient>) {
+fn client_send_input(player_input: Single<&PlayerInput>, mut client: ResMut<RenetClient>) {
     let input_message = bincode::serialize(&*player_input).unwrap();
 
     client.send_message(ClientChannel::Input, input_message);

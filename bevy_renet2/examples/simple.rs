@@ -18,7 +18,7 @@ const PROTOCOL_ID: u64 = 7;
 
 const PLAYER_MOVE_SPEED: f32 = 5.0;
 
-#[derive(Debug, Default, Serialize, Deserialize, Component, Resource)]
+#[derive(Debug, Default, Serialize, Deserialize, Component)]
 struct PlayerInput {
     up: bool,
     down: bool,
@@ -108,7 +108,6 @@ fn main() {
     } else {
         app.add_plugins(RenetClientPlugin);
         app.add_plugins(NetcodeClientPlugin);
-        app.init_resource::<PlayerInput>();
         let (client, transport) = new_renet_client();
         app.insert_resource(client);
         app.insert_resource(transport);
@@ -117,6 +116,7 @@ fn main() {
             Update,
             (player_input, client_send_input, client_sync_players).run_if(client_connected),
         );
+        app.add_systems(Startup, setup_player_input);
     }
 
     app.add_systems(Startup, setup);
@@ -237,6 +237,10 @@ fn client_sync_players(
     }
 }
 
+fn setup_player_input(mut commands: Commands) {
+    commands.spawn(PlayerInput::default());
+}
+
 /// set up a simple 3D scene
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     // plane
@@ -248,7 +252,7 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
     commands.spawn((
         PointLight {
             intensity: 300000.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..Default::default()
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
@@ -260,14 +264,14 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
     ));
 }
 
-fn player_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut player_input: ResMut<PlayerInput>) {
+fn player_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut player_input: Single<&mut PlayerInput>) {
     player_input.left = keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft);
     player_input.right = keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight);
     player_input.up = keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp);
     player_input.down = keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown);
 }
 
-fn client_send_input(player_input: Res<PlayerInput>, mut client: ResMut<RenetClient>) {
+fn client_send_input(player_input: Single<&PlayerInput>, mut client: ResMut<RenetClient>) {
     let input_message = bincode::serialize(&*player_input).unwrap();
 
     client.send_message(DefaultChannel::ReliableOrdered, input_message);

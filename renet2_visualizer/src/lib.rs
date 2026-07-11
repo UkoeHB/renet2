@@ -371,16 +371,13 @@ fn show_graph(
         let text_pos = rect.right_center() + vec2(spacing_x / 2.0, -galley.size().y / 2.);
         ui.painter().with_clip_rect(outer_rect).galley(text_pos, galley, style.text_color);
 
-        let body = Shape::Rect(RectShape {
+        let body = Shape::Rect(RectShape::new(
             rect,
-            corner_radius: CornerRadius::ZERO,
-            fill: Rgba::TRANSPARENT.into(),
-            stroke: style.rectangle_stroke,
-            blur_width: 0.,
-            round_to_pixels: None,
-            stroke_kind: egui::StrokeKind::Inside,
-            brush: None,
-        });
+            CornerRadius::ZERO,
+            Rgba::TRANSPARENT,
+            style.rectangle_stroke,
+            egui::StrokeKind::Inside,
+        ));
         ui.painter().add(body);
         let init_point = rect.left_bottom();
 

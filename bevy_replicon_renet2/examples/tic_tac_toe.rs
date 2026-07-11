@@ -228,7 +228,7 @@ fn setup_ui(mut commands: Commands, symbol_font: Res<SymbolFont>) {
                     children![(
                         Text::default(),
                         TextFont {
-                            font_size: FONT_SIZE,
+                            font_size: FontSize::Px(FONT_SIZE),
                             ..Default::default()
                         },
                         TextColor(TEXT_COLOR),
@@ -236,8 +236,8 @@ fn setup_ui(mut commands: Commands, symbol_font: Res<SymbolFont>) {
                         children![(
                             TextSpan::default(),
                             TextFont {
-                                font: symbol_font.0.clone(),
-                                font_size: FONT_SIZE,
+                                font: symbol_font.0.clone().into(),
+                                font_size: FontSize::Px(FONT_SIZE),
                                 ..Default::default()
                             },
                             TextColor(TEXT_COLOR),
@@ -317,8 +317,8 @@ fn init_symbols(
     commands.entity(add.entity).remove::<Interaction>().with_child((
         Text::new(symbol.glyph()),
         TextFont {
-            font: symbol_font.0.clone(),
-            font_size: 65.0,
+            font: symbol_font.0.clone().into(),
+            font_size: FontSize::Px(65.0),
             ..Default::default()
         },
         TextColor(symbol.color()),

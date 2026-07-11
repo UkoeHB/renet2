@@ -72,7 +72,7 @@ fn add_steam_network(app: &mut App) {
     app.add_plugins(SteamServerPlugin);
     app.insert_resource(server);
     app.insert_resource(transport);
-    app.insert_non_send_resource(steam_client.clone());
+    app.insert_non_send(steam_client.clone());
 
     fn steam_callbacks(client: NonSend<Client>) {
         client.run_callbacks();

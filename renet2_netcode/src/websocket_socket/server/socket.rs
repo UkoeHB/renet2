@@ -303,6 +303,7 @@ impl WebSocketServer {
         // TODO: this is a multistep process that continues after receiving a Request. We would rather
         // pause to validate the URI before continuing, but tungstenite does not support that workflow.
         // Might need to use axum instead.
+        #[allow(clippy::result_large_err, reason = "this is from a tungstenite handshake callback closure")]
         let callback = move |req: &Request, res: Response| {
             let uri = req.uri().clone();
             uri_sender.try_send(uri).ok();
