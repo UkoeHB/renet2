@@ -182,7 +182,12 @@ impl NetcodeServerTransport {
             handle_server_result(server_result, &mut self.sockets, server);
         }
 
-        for disconnection_id in server.disconnections_id() {
+        for disconnection_id in self
+            .netcode_server
+            .clients_id_iter()
+            .filter(|&id| !server.is_connected(id))
+            .collect::<Vec<_>>()
+        {
             let server_result = self.netcode_server.disconnect(disconnection_id);
             handle_server_result(server_result, &mut self.sockets, server);
         }
@@ -202,8 +207,11 @@ impl NetcodeServerTransport {
     pub fn send_packets(&mut self, server: &mut RenetServer) {
         //TODO: it isn't necessary to allocate client ids here, just use one big vec of packets for all clients
         // - also, the vec can be cached in RenetServer for reuse, and likewise with the internal pieces of packets
-        for client_id in server.clients_id() {
-            let packets = server.get_packets_to_send(client_id).unwrap();
+        for client_id in self.netcode_server.clients_id() {
+            let Ok(packets) = server.get_packets_to_send(client_id) else {
+                continue;
+            };
+
             for packet in packets {
                 if !send_packet_to_client(&mut self.sockets, &mut self.netcode_server, server, &packet, client_id) {
                     break;

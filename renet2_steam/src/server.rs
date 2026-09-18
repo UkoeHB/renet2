@@ -148,6 +148,16 @@ impl SteamServerTransport {
             }
         }
 
+        let disconnected_clients = self
+            .connections
+            .keys()
+            .copied()
+            .filter(|&client_id| !server.is_connected(client_id))
+            .collect::<Vec<_>>();
+        for client_id in disconnected_clients {
+            self.disconnect_client(client_id, server, false);
+        }
+
         for (client_id, connection) in self.connections.iter_mut() {
             // TODO this allocates on the side of steamworks.rs and should be avoided, PR needed
             if let Ok(messages) = connection.receive_messages(MAX_MESSAGE_BATCH_SIZE) {
@@ -162,17 +172,16 @@ impl SteamServerTransport {
 
     /// Send packets to connected clients.
     pub fn send_packets(&mut self, server: &mut RenetServer) {
-        'clients: for client_id in server.clients_id() {
-            let Some(connection) = self.connections.get(&client_id) else {
-                log::error!("Error while sending packet: connection not found");
+        'connections: for (&client_id, connection) in &self.connections {
+            let Ok(packets) = server.get_packets_to_send(client_id) else {
                 continue;
             };
-            let packets = server.get_packets_to_send(client_id).unwrap();
+
             // TODO: while this works fine we should probably use the send_messages function from the listen_socket
             for packet in packets {
                 if let Err(e) = connection.send_message(&packet, SendFlags::UNRELIABLE) {
                     log::error!("Failed to send packet to client {client_id}: {e}");
-                    continue 'clients;
+                    continue 'connections;
                 }
             }
 
