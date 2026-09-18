@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.16.1 - 09/17/26
+
+- Fix: allow Steam server transport to work along with the netcode transport.
+- Fix: disconnect logic for the Steam server transport.
+
 ## 0.16.0 - 07/11/26
 
 - Update to `bevy` v0.19.
