@@ -123,6 +123,11 @@ impl SteamClientTransport {
             return;
         };
 
+        if client.is_disconnected() {
+            self.disconnect();
+            return;
+        }
+
         if self.is_connected() {
             client.set_connected();
         } else if self.is_connecting() {
