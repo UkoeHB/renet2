@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.16.2 - 09/17/26
+
+- Fix: disconnect Steam transport on renet client disconnect.
+
+
 ## 0.16.1 - 09/17/26
 
 - Fix: allow Steam server transport to work along with the netcode transport.

@@ -1,6 +1,6 @@
 [package]
 name = "renet2_steam"
-version = "0.16.1"
+version = "0.16.2"
 keywords = ["gamedev", "networking", "transport"]
 description = "steam transport for the renet2 crate"
 repository = "https://github.com/UkoeHB/renet2"

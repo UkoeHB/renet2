@@ -1,7 +1,7 @@
 [package]
 name = "bevy_renet2"
 description = "Bevy plugin for the renet2 crate"
-version = "0.16.1"
+version = "0.16.2"
 edition = "2021"
 keywords = ["gamedev", "networking"]
 license = "MIT OR Apache-2.0"
@@ -40,7 +40,7 @@ renet2 = { path = "../renet2", version = "0.16.1", default-features = false, fea
 renet2_netcode = { path = "../renet2_netcode", version = "0.16.1", optional = true, default-features = false, features = [
   "bevy",
 ] }
-renet2_steam = { path = "../renet2_steam", version = "0.16.1", optional = true, default-features = false, features = [
+renet2_steam = { path = "../renet2_steam", version = "0.16.2", optional = true, default-features = false, features = [
   "bevy",
 ] }
 steamworks = { version = "0.13", optional = true }
