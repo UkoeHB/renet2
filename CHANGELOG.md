@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.16.3 - 09/27/26
+
+- Add `has_client` and `clients_id_iter` methods to server transports.
+
+
 ## 0.16.2 - 09/17/26
 
 - Fix: disconnect Steam transport on renet client disconnect.
