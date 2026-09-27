@@ -190,4 +190,14 @@ impl SteamServerTransport {
             }
         }
     }
+
+    /// Returns `true` if the client is currently managed by this transport.
+    pub fn has_client(&self, client_id: ClientId) -> bool {
+        self.connections.contains_key(&client_id)
+    }
+
+    /// Returns an iterator over the ids of clients currently managed by this transport.
+    pub fn clients_id_iter(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.connections.keys().copied()
+    }
 }
