@@ -219,6 +219,16 @@ impl NetcodeServerTransport {
             }
         }
     }
+
+    /// Returns `true` if the client is currently managed by this transport.
+    pub fn has_client(&self, client_id: ClientId) -> bool {
+        self.netcode_server.is_client_connected(client_id)
+    }
+
+    /// Returns an iterator over the ids of clients currently managed by this transport.
+    pub fn clients_id_iter(&self) -> impl Iterator<Item = ClientId> + '_ {
+        self.netcode_server.clients_id_iter()
+    }
 }
 
 /// Sends a packet to a client.
