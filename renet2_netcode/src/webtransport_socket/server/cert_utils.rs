@@ -1,7 +1,7 @@
 use anyhow::Error;
-use rcgen::{CertificateParams, DistinguishedName, DnType, IsCa, KeyIdMethod, SanType, PKCS_ECDSA_P256_SHA256};
+use rcgen::{CertificateParams, DistinguishedName, DnType, IsCa, KeyIdMethod, PKCS_ECDSA_P256_SHA256, SanType};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use time::{ext::NumericalDuration, OffsetDateTime};
+use time::{OffsetDateTime, ext::NumericalDuration};
 
 use std::path::PathBuf;
 

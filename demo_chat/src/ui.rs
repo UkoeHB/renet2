@@ -1,6 +1,6 @@
 use bincode::Options;
 use eframe::{
-    egui::{self, lerp, Color32, Layout, OutputCommand, Pos2, Ui, Vec2},
+    egui::{self, Color32, Layout, OutputCommand, Pos2, Ui, Vec2, lerp},
     epaint::PathShape,
 };
 use renet2::{ClientId, ConnectionConfig, DefaultChannel, RenetClient};
@@ -12,11 +12,11 @@ use std::{
     time::SystemTime,
 };
 
+use crate::{ClientMessages, PROTOCOL_ID, Username};
 use crate::{
     client::{AppState, UiState},
     server::{ChatServer, HOST_CLIENT_ID, SYSTEM_MESSAGE_CLIENT_ID},
 };
-use crate::{ClientMessages, Username, PROTOCOL_ID};
 
 pub fn draw_loader(ui: &mut Ui) {
     egui::CentralPanel::default().show(ui, |ui| {
@@ -144,7 +144,7 @@ pub fn draw_chat(ui_state: &mut UiState, state: &mut AppState, usernames: HashMa
             AppState::ClientChat { visualizer, .. } => {
                 visualizer.show_window(&ctx);
             }
-            AppState::HostChat { ref mut chat_server } => {
+            AppState::HostChat { chat_server } => {
                 chat_server.visualizer.show_window(&ctx);
             }
             _ => {}
@@ -157,7 +157,7 @@ pub fn draw_chat(ui_state: &mut UiState, state: &mut AppState, usernames: HashMa
         .show(ui, |ui| {
             ui.checkbox(&mut ui_state.show_network_info, "Show Network Graphs");
 
-            if let AppState::HostChat { ref mut chat_server } = state {
+            if let AppState::HostChat { chat_server } = state {
                 draw_host_commands(ui, chat_server);
             }
 

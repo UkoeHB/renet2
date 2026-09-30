@@ -2,18 +2,18 @@ use std::{
     io::ErrorKind,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use js_sys::Uint8Array;
 use log::{debug, error, warn};
-use wasm_bindgen::{closure::Closure, JsCast};
+use wasm_bindgen::{JsCast, closure::Closure};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{BinaryType, CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
-use crate::{ClientSocket, NetcodeTransportError, HTTP_CONNECT_REQ};
+use crate::{ClientSocket, HTTP_CONNECT_REQ, NetcodeTransportError};
 
 /// Configuration for setting up a [`WebSocketClient`].
 #[derive(Debug, Clone)]

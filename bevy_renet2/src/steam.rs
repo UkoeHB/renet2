@@ -1,11 +1,11 @@
 pub use renet2_steam::*;
 
 use ::steamworks::SteamError;
-use bevy_app::{prelude::*, AppExit};
+use bevy_app::{AppExit, prelude::*};
 use bevy_ecs::prelude::*;
 use renet2::{RenetClient, RenetServer};
 
-use crate::prelude::{client_should_update, RenetClientPlugin, RenetReceive, RenetSend, RenetServerPlugin};
+use crate::prelude::{RenetClientPlugin, RenetReceive, RenetSend, RenetServerPlugin, client_should_update};
 
 pub struct SteamServerPlugin;
 

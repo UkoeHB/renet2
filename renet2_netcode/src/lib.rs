@@ -27,8 +27,8 @@ pub use websocket_socket::*;
 pub use webtransport_socket::*;
 
 pub use renetcode2::{
-    generate_random_bytes, ClientAuthentication, ConnectToken, DisconnectReason as NetcodeDisconnectReason, NetcodeError,
-    ServerAuthentication, ServerConfig, ServerSocketConfig, TokenGenerationError, NETCODE_KEY_BYTES, NETCODE_USER_DATA_BYTES,
+    ClientAuthentication, ConnectToken, DisconnectReason as NetcodeDisconnectReason, NETCODE_KEY_BYTES, NETCODE_USER_DATA_BYTES,
+    NetcodeError, ServerAuthentication, ServerConfig, ServerSocketConfig, TokenGenerationError, generate_random_bytes,
 };
 
 #[derive(Debug)]

@@ -179,10 +179,12 @@ fn run_client(steam_client: Client, server_steam_id: SteamId, lobby_id: Option<L
 
 fn spawn_stdin_channel() -> Receiver<String> {
     let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        std::io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer.trim_end().to_string()).unwrap();
+    thread::spawn(move || {
+        loop {
+            let mut buffer = String::new();
+            std::io::stdin().read_line(&mut buffer).unwrap();
+            tx.send(buffer.trim_end().to_string()).unwrap();
+        }
     });
     rx
 }

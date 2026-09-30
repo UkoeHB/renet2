@@ -1,6 +1,6 @@
 use renet2_netcode::{ConnectToken, NetcodeError, ServerCertHash};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, Bytes};
+use serde_with::{Bytes, serde_as};
 
 //-------------------------------------------------------------------------------------------------------------------
 

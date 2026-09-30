@@ -5,7 +5,7 @@ authors = [
   "Hennadii Chernyshchyk <genaloner@gmail.com>",
   "koe <ukoe@protonmail.com>",
 ]
-edition = "2021"
+edition = "2024"
 description = "Integration with renet2 for bevy_replicon"
 keywords = [
   "bevy",

@@ -7,7 +7,7 @@ use bevy::{
 };
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_renet2::prelude::{ClientId, RenetClient, RenetClientPlugin};
-use demo_bevy::{setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages};
+use demo_bevy::{ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages, setup_level};
 use renet2_visualizer::{RenetClientVisualizer, RenetVisualizerStyle};
 
 #[derive(Component)]
@@ -37,7 +37,7 @@ struct Connected;
 fn add_netcode_network(app: &mut App) {
     use bevy_renet2::netcode::{ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeTransportError};
     use bevy_renet2::prelude::client_connected;
-    use demo_bevy::{connection_config, PROTOCOL_ID};
+    use demo_bevy::{PROTOCOL_ID, connection_config};
     use std::{net::UdpSocket, time::SystemTime};
 
     app.add_plugins(bevy_renet2::netcode::NetcodeClientPlugin);

@@ -14,9 +14,9 @@ use bevy::{
 use bevy_renet2::netcode::{NativeSocket, ServerSetupConfig};
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{
+    RenetChannelsExt, RepliconRenetPlugins,
     netcode::{ClientAuthentication, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication},
     renet2::{ConnectionConfig, RenetClient, RenetServer},
-    RenetChannelsExt, RepliconRenetPlugins,
 };
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};

@@ -6,7 +6,7 @@ description = "Egui metrics visualizer for the renet2 crate"
 repository = "https://github.com/UkoeHB/renet2"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-edition = "2021"
+edition = "2024"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -1,6 +1,6 @@
 use renetcode2::{
-    ClientAuthentication, ConnectToken, NetcodeClient, NetcodeServer, ServerAuthentication, ServerConfig, ServerResult, ServerSocketConfig,
-    NETCODE_KEY_BYTES, NETCODE_MAX_PACKET_BYTES, NETCODE_USER_DATA_BYTES,
+    ClientAuthentication, ConnectToken, NETCODE_KEY_BYTES, NETCODE_MAX_PACKET_BYTES, NETCODE_USER_DATA_BYTES, NetcodeClient, NetcodeServer,
+    ServerAuthentication, ServerConfig, ServerResult, ServerSocketConfig,
 };
 use std::time::Duration;
 use std::{collections::HashMap, thread};
@@ -229,10 +229,12 @@ fn client(authentication: ClientAuthentication) {
 
 fn spawn_stdin_channel() -> Receiver<String> {
     let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        std::io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer.trim_end().to_string()).unwrap();
+    thread::spawn(move || {
+        loop {
+            let mut buffer = String::new();
+            std::io::stdin().read_line(&mut buffer).unwrap();
+            tx.send(buffer.trim_end().to_string()).unwrap();
+        }
     });
     rx
 }

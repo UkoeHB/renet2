@@ -7,8 +7,8 @@ use bevy::{
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_renet2::prelude::*;
 use demo_bevy::{
-    setup_level, spawn_fireball, ClientChannel, NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile, ServerChannel,
-    ServerMessages, Velocity,
+    ClientChannel, NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile, ServerChannel, ServerMessages, Velocity, setup_level,
+    spawn_fireball,
 };
 use renet2_visualizer::RenetServerVisualizer;
 
@@ -30,7 +30,7 @@ struct BotId(u64);
 #[cfg(feature = "netcode")]
 fn add_netcode_network(app: &mut App) {
     use bevy_renet2::netcode::{NativeSocket, NetcodeServerPlugin, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig};
-    use demo_bevy::{connection_config, PROTOCOL_ID};
+    use demo_bevy::{PROTOCOL_ID, connection_config};
     use std::{net::UdpSocket, time::SystemTime};
 
     app.add_plugins(NetcodeServerPlugin);

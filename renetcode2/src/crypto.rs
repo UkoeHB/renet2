@@ -1,4 +1,4 @@
-use chacha20poly1305::aead::{rand_core::RngCore, OsRng};
+use chacha20poly1305::aead::{OsRng, rand_core::RngCore};
 use chacha20poly1305::{AeadInPlace, ChaCha20Poly1305, Error as CryptoError, Key, KeyInit, Nonce, Tag, XChaCha20Poly1305, XNonce};
 
 use crate::{ENCODED_PACKET_TAG_BYTES, NETCODE_MAC_BYTES};

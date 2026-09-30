@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map, BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, btree_map},
     time::Duration,
 };
 
@@ -8,7 +8,7 @@ use bytes::Bytes;
 use super::SliceConstructor;
 use crate::{
     error::ChannelError,
-    packet::{Packet, Slice, SLICE_SIZE},
+    packet::{Packet, SLICE_SIZE, Slice},
 };
 
 #[derive(Debug)]

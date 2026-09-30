@@ -5,8 +5,8 @@ use bevy_renet2::netcode::{
     NetcodeTransportError, ServerAuthentication, ServerSetupConfig,
 };
 use bevy_renet2::prelude::{
-    client_connected, ClientId, ConnectionConfig, DefaultChannel, RenetClient, RenetClientPlugin, RenetServer, RenetServerPlugin,
-    ServerEvent,
+    ClientId, ConnectionConfig, DefaultChannel, RenetClient, RenetClientPlugin, RenetServer, RenetServerPlugin, ServerEvent,
+    client_connected,
 };
 
 use std::time::SystemTime;

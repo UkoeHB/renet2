@@ -4,8 +4,8 @@ use std::{
     io::ErrorKind,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -19,7 +19,7 @@ use anyhow::Error;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use crate::{client_idx_from_addr, client_idx_to_addr, NetcodeTransportError, ServerSocket, HTTP_CONNECT_REQ};
+use crate::{HTTP_CONNECT_REQ, NetcodeTransportError, ServerSocket, client_idx_from_addr, client_idx_to_addr};
 
 /// Acceptor config for WebSocket connections.
 ///

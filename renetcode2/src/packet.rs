@@ -4,8 +4,8 @@ use crate::crypto::{decode_and_check_buffer, dencrypted_in_place, encode_in_plac
 use crate::replay_protection::ReplayProtection;
 use crate::token::ConnectToken;
 use crate::{
-    serialize::*, NetcodeError, NETCODE_CHALLENGE_TOKEN_BYTES, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES,
-    NETCODE_KEY_BYTES, NETCODE_MAC_BYTES,
+    NETCODE_CHALLENGE_TOKEN_BYTES, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES, NETCODE_KEY_BYTES,
+    NETCODE_MAC_BYTES, NetcodeError, serialize::*,
 };
 use crate::{NETCODE_USER_DATA_BYTES, NETCODE_VERSION_INFO};
 
@@ -404,7 +404,7 @@ fn read_sequence(source: &mut impl io::Read, len: usize) -> Result<u64, io::Erro
 
 #[cfg(test)]
 mod tests {
-    use crate::{crypto::generate_random_bytes, NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES};
+    use crate::{NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES, crypto::generate_random_bytes};
 
     use super::*;
 

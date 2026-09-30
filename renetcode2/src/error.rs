@@ -1,6 +1,6 @@
 use std::{error, fmt, io};
 
-use crate::{token::TokenGenerationError, DisconnectReason, NETCODE_MAX_PAYLOAD_BYTES};
+use crate::{DisconnectReason, NETCODE_MAX_PAYLOAD_BYTES, token::TokenGenerationError};
 use chacha20poly1305::aead::Error as CryptoError;
 
 /// Errors from the renetcode crate.
