@@ -289,10 +289,11 @@ impl<'a> Packet<'a> {
                 (sequence, additional_data, src.position() as usize)
             };
 
-            if let Some(ref replay_protection) = replay_protection {
-                if packet_type.apply_replay_protection() && replay_protection.already_received(sequence) {
-                    return Err(NetcodeError::DuplicatedSequence);
-                }
+            if let Some(ref replay_protection) = replay_protection
+                && packet_type.apply_replay_protection()
+                && replay_protection.already_received(sequence)
+            {
+                return Err(NetcodeError::DuplicatedSequence);
             }
 
             match encrypted {
@@ -300,10 +301,10 @@ impl<'a> Packet<'a> {
                 false => decode_and_check_buffer(&buffer[read_pos..], protocol_id).map_err(|()| NetcodeError::CryptoError)?,
             }
 
-            if let Some(replay_protection) = replay_protection {
-                if packet_type.apply_replay_protection() {
-                    replay_protection.advance_sequence(sequence);
-                }
+            if let Some(replay_protection) = replay_protection
+                && packet_type.apply_replay_protection()
+            {
+                replay_protection.advance_sequence(sequence);
             }
 
             let packet = Packet::read(packet_type, &buffer[read_pos..buffer.len() - NETCODE_MAC_BYTES])?;

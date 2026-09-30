@@ -352,10 +352,10 @@ impl NetcodeClient {
     }
 
     fn generate_packet(&mut self) -> Option<(&mut [u8], SocketAddr)> {
-        if let Some(last_packet_send_time) = self.last_packet_send_time {
-            if self.current_time - last_packet_send_time < self.send_rate {
-                return None;
-            }
+        if let Some(last_packet_send_time) = self.last_packet_send_time
+            && self.current_time - last_packet_send_time < self.send_rate
+        {
+            return None;
         }
 
         if matches!(

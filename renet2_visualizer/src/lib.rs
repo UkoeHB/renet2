@@ -305,12 +305,12 @@ impl<const N: usize> RenetServerVisualizer<N> {
                         });
                     });
                 }
-            } else if let Some(selected_client) = self.selected_client {
-                if let Some(client) = self.clients.get(&selected_client) {
-                    ui.horizontal(|ui| {
-                        client.draw_all(ui);
-                    });
-                }
+            } else if let Some(selected_client) = self.selected_client
+                && let Some(client) = self.clients.get(&selected_client)
+            {
+                ui.horizontal(|ui| {
+                    client.draw_all(ui);
+                });
             }
         });
     }

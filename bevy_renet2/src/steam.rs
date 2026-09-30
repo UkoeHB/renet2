@@ -56,10 +56,10 @@ impl SteamServerPlugin {
         mut transport: Option<ResMut<SteamServerTransport>>,
         mut server: ResMut<RenetServer>,
     ) {
-        if let Some(transport) = transport.as_mut() {
-            if !exit.is_empty() {
-                transport.disconnect_all(&mut server, false);
-            }
+        if let Some(transport) = transport.as_mut()
+            && !exit.is_empty()
+        {
+            transport.disconnect_all(&mut server, false);
         }
     }
 }

@@ -315,10 +315,10 @@ impl WebTransportServer {
                     Ok(session_request) => {
                         match Self::handle_session_request(client_iterator, connection_req_sender, session_request).await {
                             Ok(maybe_session) => {
-                                if let Some(session) = maybe_session {
-                                    if let Err(e) = sender.try_send(session) {
-                                        debug!("Failed to send session to main thread: {e}");
-                                    }
+                                if let Some(session) = maybe_session
+                                    && let Err(e) = sender.try_send(session)
+                                {
+                                    debug!("Failed to send session to main thread: {e}");
                                 }
                             }
                             Err(err) => {

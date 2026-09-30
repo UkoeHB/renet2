@@ -197,22 +197,22 @@ fn server_update_system(
                 PlayerCommand::BasicAttack { mut cast_at } => {
                     println!("Received basic attack from client {}: {:?}", client_id, cast_at);
 
-                    if let Some(player_entity) = lobby.players.get(&client_id) {
-                        if let Ok((_, _, player_transform)) = players.get(*player_entity) {
-                            cast_at[1] = player_transform.translation[1];
+                    if let Some(player_entity) = lobby.players.get(&client_id)
+                        && let Ok((_, _, player_transform)) = players.get(*player_entity)
+                    {
+                        cast_at[1] = player_transform.translation[1];
 
-                            let direction = (cast_at - player_transform.translation).normalize_or_zero();
-                            let mut translation = player_transform.translation + (direction * 0.7);
-                            translation[1] = 1.0;
+                        let direction = (cast_at - player_transform.translation).normalize_or_zero();
+                        let mut translation = player_transform.translation + (direction * 0.7);
+                        translation[1] = 1.0;
 
-                            let fireball_entity = spawn_fireball(&mut commands, &mut meshes, &mut materials, translation, direction);
-                            let message = ServerMessages::SpawnProjectile {
-                                entity: fireball_entity.to_bits(),
-                                translation: translation.into(),
-                            };
-                            let message = bincode::serialize(&message).unwrap();
-                            server.broadcast_message(ServerChannel::ServerMessages, message);
-                        }
+                        let fireball_entity = spawn_fireball(&mut commands, &mut meshes, &mut materials, translation, direction);
+                        let message = ServerMessages::SpawnProjectile {
+                            entity: fireball_entity.to_bits(),
+                            translation: translation.into(),
+                        };
+                        let message = bincode::serialize(&message).unwrap();
+                        server.broadcast_message(ServerChannel::ServerMessages, message);
                     }
                 }
             }

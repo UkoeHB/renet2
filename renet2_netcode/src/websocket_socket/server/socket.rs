@@ -279,10 +279,10 @@ impl WebSocketServer {
 
                 match Self::handle_connection(acceptor, client_iterator, connection_req_sender, stream).await {
                     Ok(result) => {
-                        if let Some(result) = result {
-                            if let Err(err) = connection_sender.try_send(result) {
-                                log::debug!("Failed to send connection result: {:?}", err);
-                            }
+                        if let Some(result) = result
+                            && let Err(err) = connection_sender.try_send(result)
+                        {
+                            log::debug!("Failed to send connection result: {:?}", err);
                         }
                     }
                     Err(err) => {

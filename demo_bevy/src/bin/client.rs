@@ -289,12 +289,11 @@ fn update_target_system(
 ) {
     let (camera, camera_transform) = camera_query.single().unwrap();
     let mut target_transform = target_query.single_mut().unwrap();
-    if let Some(cursor_pos) = primary_window.single().unwrap().cursor_position() {
-        if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
-            if let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Dir3::Y)) {
-                target_transform.translation = ray.direction * distance + ray.origin;
-            }
-        }
+    if let Some(cursor_pos) = primary_window.single().unwrap().cursor_position()
+        && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos)
+        && let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Dir3::Y))
+    {
+        target_transform.translation = ray.direction * distance + ray.origin;
     }
 }
 
