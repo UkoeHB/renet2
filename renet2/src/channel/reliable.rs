@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map, BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, btree_map},
     time::Duration,
 };
 
@@ -8,7 +8,7 @@ use bytes::Bytes;
 use super::SliceConstructor;
 use crate::{
     error::ChannelError,
-    packet::{Packet, Slice, SLICE_SIZE},
+    packet::{Packet, SLICE_SIZE, Slice},
 };
 
 #[derive(Debug)]
@@ -109,10 +109,10 @@ impl SendChannelReliable {
                         continue;
                     }
 
-                    if let Some(last_sent) = last_sent {
-                        if current_time - *last_sent < self.resend_time {
-                            continue;
-                        }
+                    if let Some(last_sent) = last_sent
+                        && current_time - *last_sent < self.resend_time
+                    {
+                        continue;
                     }
 
                     *available_bytes -= message.len() as u64;
@@ -155,10 +155,10 @@ impl SendChannelReliable {
                             continue;
                         }
 
-                        if let Some(last_sent) = last_sent[i] {
-                            if current_time - last_sent < self.resend_time {
-                                continue;
-                            }
+                        if let Some(last_sent) = last_sent[i]
+                            && current_time - last_sent < self.resend_time
+                        {
+                            continue;
                         }
 
                         let start = i * SLICE_SIZE;

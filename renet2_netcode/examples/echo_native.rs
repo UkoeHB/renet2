@@ -8,8 +8,8 @@ use std::{
 
 use renet2::{ClientId, ConnectionConfig, DefaultChannel, RenetClient, RenetServer, ServerEvent};
 use renet2_netcode::{
-    ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
-    NETCODE_USER_DATA_BYTES,
+    ClientAuthentication, NETCODE_USER_DATA_BYTES, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication,
+    ServerSetupConfig,
 };
 
 // Helper struct to pass an username in the user data
@@ -184,10 +184,12 @@ fn client(server_addr: SocketAddr, username: Username) {
 
 fn spawn_stdin_channel() -> Receiver<String> {
     let (tx, rx) = mpsc::channel::<String>();
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        std::io::stdin().read_line(&mut buffer).unwrap();
-        tx.send(buffer.trim_end().to_string()).unwrap();
+    thread::spawn(move || {
+        loop {
+            let mut buffer = String::new();
+            std::io::stdin().read_line(&mut buffer).unwrap();
+            tx.send(buffer.trim_end().to_string()).unwrap();
+        }
     });
     rx
 }

@@ -2,11 +2,11 @@ pub use renet2_netcode::*;
 
 use renet2::{RenetClient, RenetServer};
 
-use bevy_app::{prelude::*, AppExit};
+use bevy_app::{AppExit, prelude::*};
 use bevy_ecs::prelude::*;
 use bevy_time::prelude::*;
 
-use crate::prelude::{client_should_update, RenetClientPlugin, RenetReceive, RenetSend, RenetServerPlugin};
+use crate::prelude::{RenetClientPlugin, RenetReceive, RenetSend, RenetServerPlugin, client_should_update};
 
 pub struct NetcodeServerPlugin;
 

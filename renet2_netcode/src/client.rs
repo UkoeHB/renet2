@@ -1,6 +1,6 @@
 use std::{io, net::SocketAddr, time::Duration};
 
-use renetcode2::{ClientAuthentication, DisconnectReason, NetcodeClient, NetcodeError, NETCODE_MAX_PACKET_BYTES};
+use renetcode2::{ClientAuthentication, DisconnectReason, NETCODE_MAX_PACKET_BYTES, NetcodeClient, NetcodeError};
 
 use renet2::{ClientId, RenetClient};
 

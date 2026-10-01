@@ -3,9 +3,9 @@ use std::sync::Mutex;
 
 use renet2::{ClientId, RenetServer};
 use steamworks::{
+    Client, FriendFlags, LobbyId, SteamId,
     networking_sockets::{InvalidHandle, ListenSocket, NetConnection},
     networking_types::{AppNetConnectionEnd, ListenSocketEvent, NetConnectionEnd, NetworkingConfigEntry, SendFlags},
-    Client, FriendFlags, LobbyId, SteamId,
 };
 
 use super::MAX_MESSAGE_BATCH_SIZE;

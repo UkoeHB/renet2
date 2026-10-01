@@ -1,13 +1,13 @@
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use crate::{
+    NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES, NETCODE_KEY_BYTES, NETCODE_MAC_BYTES, NETCODE_MAX_CLIENTS,
+    NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES, NETCODE_MAX_PENDING_CLIENTS, NETCODE_SEND_RATE, NETCODE_USER_DATA_BYTES,
+    NETCODE_VERSION_INFO, NetcodeError,
     crypto::generate_random_bytes,
     packet::{ChallengeToken, Packet},
     replay_protection::ReplayProtection,
     token::PrivateConnectToken,
-    NetcodeError, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES, NETCODE_KEY_BYTES, NETCODE_MAC_BYTES,
-    NETCODE_MAX_CLIENTS, NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES, NETCODE_MAX_PENDING_CLIENTS, NETCODE_SEND_RATE,
-    NETCODE_USER_DATA_BYTES, NETCODE_VERSION_INFO,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -884,7 +884,7 @@ fn find_client_mut_by_addr(clients: &mut [Option<Connection>], socket_id: usize,
 
 #[cfg(test)]
 mod tests {
-    use crate::{client::NetcodeClient, token::ConnectToken, ClientAuthentication};
+    use crate::{ClientAuthentication, client::NetcodeClient, token::ConnectToken};
 
     use super::*;
 

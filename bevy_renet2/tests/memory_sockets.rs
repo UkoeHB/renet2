@@ -2,8 +2,8 @@ use std::time::SystemTime;
 
 use bevy::prelude::*;
 use bevy_renet2::netcode::{
-    in_memory_server_addr, new_memory_sockets, ClientAuthentication, MemorySocketClient, NetcodeClientPlugin, NetcodeClientTransport,
-    NetcodeServerPlugin, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig,
+    ClientAuthentication, MemorySocketClient, NetcodeClientPlugin, NetcodeClientTransport, NetcodeServerPlugin, NetcodeServerTransport,
+    ServerAuthentication, ServerSetupConfig, in_memory_server_addr, new_memory_sockets,
 };
 use bevy_renet2::prelude::{ConnectionConfig, DefaultChannel, RenetClient, RenetClientPlugin, RenetServer, RenetServerPlugin};
 

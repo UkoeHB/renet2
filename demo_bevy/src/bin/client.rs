@@ -7,7 +7,7 @@ use bevy::{
 };
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_renet2::prelude::{ClientId, RenetClient, RenetClientPlugin};
-use demo_bevy::{setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages};
+use demo_bevy::{ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages, setup_level};
 use renet2_visualizer::{RenetClientVisualizer, RenetVisualizerStyle};
 
 #[derive(Component)]
@@ -37,7 +37,7 @@ struct Connected;
 fn add_netcode_network(app: &mut App) {
     use bevy_renet2::netcode::{ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeTransportError};
     use bevy_renet2::prelude::client_connected;
-    use demo_bevy::{connection_config, PROTOCOL_ID};
+    use demo_bevy::{PROTOCOL_ID, connection_config};
     use std::{net::UdpSocket, time::SystemTime};
 
     app.add_plugins(bevy_renet2::netcode::NetcodeClientPlugin);
@@ -289,12 +289,11 @@ fn update_target_system(
 ) {
     let (camera, camera_transform) = camera_query.single().unwrap();
     let mut target_transform = target_query.single_mut().unwrap();
-    if let Some(cursor_pos) = primary_window.single().unwrap().cursor_position() {
-        if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
-            if let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Dir3::Y)) {
-                target_transform.translation = ray.direction * distance + ray.origin;
-            }
-        }
+    if let Some(cursor_pos) = primary_window.single().unwrap().cursor_position()
+        && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos)
+        && let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Dir3::Y))
+    {
+        target_transform.translation = ray.direction * distance + ray.origin;
     }
 }
 

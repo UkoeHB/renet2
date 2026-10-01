@@ -4,8 +4,8 @@ use crate::crypto::{decode_and_check_buffer, dencrypted_in_place, encode_in_plac
 use crate::replay_protection::ReplayProtection;
 use crate::token::ConnectToken;
 use crate::{
-    serialize::*, NetcodeError, NETCODE_CHALLENGE_TOKEN_BYTES, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES,
-    NETCODE_KEY_BYTES, NETCODE_MAC_BYTES,
+    NETCODE_CHALLENGE_TOKEN_BYTES, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES, NETCODE_KEY_BYTES,
+    NETCODE_MAC_BYTES, NetcodeError, serialize::*,
 };
 use crate::{NETCODE_USER_DATA_BYTES, NETCODE_VERSION_INFO};
 
@@ -289,10 +289,11 @@ impl<'a> Packet<'a> {
                 (sequence, additional_data, src.position() as usize)
             };
 
-            if let Some(ref replay_protection) = replay_protection {
-                if packet_type.apply_replay_protection() && replay_protection.already_received(sequence) {
-                    return Err(NetcodeError::DuplicatedSequence);
-                }
+            if let Some(ref replay_protection) = replay_protection
+                && packet_type.apply_replay_protection()
+                && replay_protection.already_received(sequence)
+            {
+                return Err(NetcodeError::DuplicatedSequence);
             }
 
             match encrypted {
@@ -300,10 +301,10 @@ impl<'a> Packet<'a> {
                 false => decode_and_check_buffer(&buffer[read_pos..], protocol_id).map_err(|()| NetcodeError::CryptoError)?,
             }
 
-            if let Some(replay_protection) = replay_protection {
-                if packet_type.apply_replay_protection() {
-                    replay_protection.advance_sequence(sequence);
-                }
+            if let Some(replay_protection) = replay_protection
+                && packet_type.apply_replay_protection()
+            {
+                replay_protection.advance_sequence(sequence);
             }
 
             let packet = Packet::read(packet_type, &buffer[read_pos..buffer.len() - NETCODE_MAC_BYTES])?;
@@ -404,7 +405,7 @@ fn read_sequence(source: &mut impl io::Read, len: usize) -> Result<u64, io::Erro
 
 #[cfg(test)]
 mod tests {
-    use crate::{crypto::generate_random_bytes, NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES};
+    use crate::{NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES, crypto::generate_random_bytes};
 
     use super::*;
 

@@ -1,4 +1,4 @@
-use crate::{client_address_from_server_address, connect_token_from_bytes, ServerConnectToken};
+use crate::{ServerConnectToken, client_address_from_server_address, connect_token_from_bytes};
 
 use renet2_netcode::ClientAuthentication;
 

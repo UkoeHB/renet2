@@ -1,7 +1,7 @@
+use crate::ClientId;
 use crate::error::{ClientNotFound, DisconnectReason};
 use crate::packet::Payload;
 use crate::remote_connection::{ConnectionConfig, NetworkInfo, RenetClient};
-use crate::ClientId;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 

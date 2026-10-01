@@ -8,7 +8,7 @@ use bytes::Bytes;
 use crate::{
     channel::SliceConstructor,
     error::ChannelError,
-    packet::{Packet, Slice, SLICE_SIZE},
+    packet::{Packet, SLICE_SIZE, Slice},
 };
 
 #[derive(Debug)]
@@ -148,7 +148,8 @@ impl SendChannelUnreliable {
         if num_fragments > 20 {
             log::warn!(
                 "Sending an unreliable message with {num_fragments} fragments, messages with this many fragments are susceptible to packet loss. \
-                Consider breaking your message into smaller ones or using a reliable channel");
+                Consider breaking your message into smaller ones or using a reliable channel"
+            );
         }
 
         self.memory_usage_bytes += message.len();

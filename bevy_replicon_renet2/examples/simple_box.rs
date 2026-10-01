@@ -18,9 +18,9 @@ use bevy::{
 use bevy_renet2::netcode::ServerSetupConfig;
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{
+    RenetChannelsExt, RepliconRenetPlugins,
     netcode::{ClientAuthentication, NativeSocket, NetcodeClientTransport, NetcodeServerTransport, ServerAuthentication},
     renet2::{ConnectionConfig, RenetClient, RenetServer},
-    RenetChannelsExt, RepliconRenetPlugins,
 };
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -160,7 +160,7 @@ fn spawn_clients(trigger: On<Add, ConnectedClient>, mut commands: Commands) {
 fn despawn_clients(trigger: On<Remove, ConnectedClient>, mut commands: Commands, boxes: Query<(Entity, &BoxOwner)>) {
     let (entity, _) = boxes
         .iter()
-        .find(|(_, &owner)| *owner == ClientId::Client(trigger.event().entity))
+        .find(|(_, owner)| owner.0 == ClientId::Client(trigger.event().entity))
         .expect("all clients should have entities");
     commands.entity(entity).despawn();
 }
@@ -199,7 +199,7 @@ fn apply_movement(trigger: On<FromClient<MoveBox>>, time: Res<Time>, mut boxes: 
     // but we didn't implement it for the sake of simplicity.
     let (_, mut position) = boxes
         .iter_mut()
-        .find(|(&owner, _)| *owner == trigger.client_id)
+        .find(|(owner, _)| owner.0 == trigger.client_id)
         .unwrap_or_else(|| panic!("`{}` should be connected", trigger.client_id));
 
     **position += *trigger.message * time.delta_secs() * MOVE_SPEED;

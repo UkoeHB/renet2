@@ -1,8 +1,8 @@
 use anyhow::Error;
 use bytes::Bytes;
 use log::{debug, error, trace};
-use quinn::crypto::rustls::QuicServerConfig;
 use quinn::IdleTimeout;
+use quinn::crypto::rustls::QuicServerConfig;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::{sync::mpsc, task::AbortHandle};
 use wtransport::error::SendDatagramError;
@@ -15,15 +15,15 @@ use std::{
     io::ErrorKind,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
     vec,
 };
 
 use crate::{
-    client_idx_from_addr, client_idx_to_addr, NetcodeTransportError, ServerCertHash, ServerSocket, WebServerDestination, HTTP_CONNECT_REQ,
+    HTTP_CONNECT_REQ, NetcodeTransportError, ServerCertHash, ServerSocket, WebServerDestination, client_idx_from_addr, client_idx_to_addr,
 };
 
 use super::{generate_self_signed_certificate_opinionated, get_server_cert_hash};
@@ -315,10 +315,10 @@ impl WebTransportServer {
                     Ok(session_request) => {
                         match Self::handle_session_request(client_iterator, connection_req_sender, session_request).await {
                             Ok(maybe_session) => {
-                                if let Some(session) = maybe_session {
-                                    if let Err(e) = sender.try_send(session) {
-                                        debug!("Failed to send session to main thread: {e}");
-                                    }
+                                if let Some(session) = maybe_session
+                                    && let Err(e) = sender.try_send(session)
+                                {
+                                    debug!("Failed to send session to main thread: {e}");
                                 }
                             }
                             Err(err) => {

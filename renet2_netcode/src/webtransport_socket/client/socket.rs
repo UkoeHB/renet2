@@ -2,8 +2,8 @@ use std::{
     io::ErrorKind,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -12,11 +12,11 @@ use js_sys::{Promise, Uint8Array};
 use log::{debug, error, warn};
 use renetcode2::NETCODE_MAX_PACKET_BYTES;
 use send_wrapper::SendWrapper;
-use wasm_bindgen::{prelude::Closure, JsValue};
-use wasm_bindgen_futures::{spawn_local, JsFuture};
+use wasm_bindgen::{JsValue, prelude::Closure};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::{ReadableStreamDefaultReader, WritableStreamDefaultWriter};
 
-use crate::{ClientSocket, NetcodeTransportError, ServerCertHash, WebServerDestination, HTTP_CONNECT_REQ};
+use crate::{ClientSocket, HTTP_CONNECT_REQ, NetcodeTransportError, ServerCertHash, WebServerDestination};
 
 use super::bindings::{
     ReadableStreamDefaultReadResult, WebTransport, WebTransportCongestionControl, WebTransportError, WebTransportHash, WebTransportOptions,

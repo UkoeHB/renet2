@@ -1,7 +1,7 @@
 [package]
 name = "echo_client_native"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Client example transport for UDP sockets"
 publish = false
 

@@ -1,9 +1,9 @@
 use super::MAX_MESSAGE_BATCH_SIZE;
 use renet2::RenetClient;
 use steamworks::{
+    SteamError, SteamId,
     networking_sockets::{InvalidHandle, NetConnection, NetworkingSockets},
     networking_types::{AppNetConnectionEnd, NetConnectionEnd, NetworkingConnectionState, NetworkingIdentity, SendFlags},
-    SteamError, SteamId,
 };
 
 enum ConnectionState {

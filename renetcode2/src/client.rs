@@ -1,8 +1,8 @@
 use std::{error::Error, fmt, net::SocketAddr, time::Duration};
 
 use crate::{
-    packet::Packet, replay_protection::ReplayProtection, token::ConnectToken, NetcodeError, NETCODE_CHALLENGE_TOKEN_BYTES,
-    NETCODE_KEY_BYTES, NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES, NETCODE_SEND_RATE, NETCODE_USER_DATA_BYTES,
+    NETCODE_CHALLENGE_TOKEN_BYTES, NETCODE_KEY_BYTES, NETCODE_MAX_PACKET_BYTES, NETCODE_MAX_PAYLOAD_BYTES, NETCODE_SEND_RATE,
+    NETCODE_USER_DATA_BYTES, NetcodeError, packet::Packet, replay_protection::ReplayProtection, token::ConnectToken,
 };
 
 /// The reason why a client is in error state
@@ -352,10 +352,10 @@ impl NetcodeClient {
     }
 
     fn generate_packet(&mut self) -> Option<(&mut [u8], SocketAddr)> {
-        if let Some(last_packet_send_time) = self.last_packet_send_time {
-            if self.current_time - last_packet_send_time < self.send_rate {
-                return None;
-            }
+        if let Some(last_packet_send_time) = self.last_packet_send_time
+            && self.current_time - last_packet_send_time < self.send_rate
+        {
+            return None;
         }
 
         if matches!(
@@ -395,7 +395,7 @@ impl NetcodeClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::{crypto::generate_random_bytes, NETCODE_MAX_PACKET_BYTES};
+    use crate::{NETCODE_MAX_PACKET_BYTES, crypto::generate_random_bytes};
 
     use super::*;
 

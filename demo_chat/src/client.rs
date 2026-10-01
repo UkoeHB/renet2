@@ -8,9 +8,9 @@ use renet2_visualizer::RenetClientVisualizer;
 use std::{collections::HashMap, time::Instant};
 
 use crate::{
+    Message, ServerMessages,
     server::{ChatServer, SYSTEM_MESSAGE_CLIENT_ID},
     ui::{draw_chat, draw_loader, draw_main_screen},
-    Message, ServerMessages,
 };
 
 #[derive(Debug, Default)]

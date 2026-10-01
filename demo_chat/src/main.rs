@@ -1,5 +1,5 @@
 use client::ChatApp;
-use eframe::{egui, App};
+use eframe::{App, egui};
 use renet2::ClientId;
 use renet2_netcode::NETCODE_USER_DATA_BYTES;
 use serde::{Deserialize, Serialize};

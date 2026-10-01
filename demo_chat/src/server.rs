@@ -9,7 +9,7 @@ use renet2::{ClientId, ConnectionConfig, DefaultChannel, RenetServer, ServerEven
 use renet2_netcode::{NativeSocket, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig};
 use renet2_visualizer::RenetServerVisualizer;
 
-use crate::{ClientMessages, Message, ServerMessages, Username, PROTOCOL_ID};
+use crate::{ClientMessages, Message, PROTOCOL_ID, ServerMessages, Username};
 use bincode::Options;
 use log::info;
 

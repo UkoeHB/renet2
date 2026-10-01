@@ -4,8 +4,8 @@ use std::{
     io::ErrorKind,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -19,7 +19,7 @@ use anyhow::Error;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 
-use crate::{client_idx_from_addr, client_idx_to_addr, NetcodeTransportError, ServerSocket, HTTP_CONNECT_REQ};
+use crate::{HTTP_CONNECT_REQ, NetcodeTransportError, ServerSocket, client_idx_from_addr, client_idx_to_addr};
 
 /// Acceptor config for WebSocket connections.
 ///
@@ -279,10 +279,10 @@ impl WebSocketServer {
 
                 match Self::handle_connection(acceptor, client_iterator, connection_req_sender, stream).await {
                     Ok(result) => {
-                        if let Some(result) = result {
-                            if let Err(err) = connection_sender.try_send(result) {
-                                log::debug!("Failed to send connection result: {:?}", err);
-                            }
+                        if let Some(result) = result
+                            && let Err(err) = connection_sender.try_send(result)
+                        {
+                            log::debug!("Failed to send connection result: {:?}", err);
                         }
                     }
                     Err(err) => {

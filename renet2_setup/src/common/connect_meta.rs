@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{connect_token_to_bytes, ConnectionType, GameServerSetupConfig, ServerConnectToken};
+use crate::{ConnectionType, GameServerSetupConfig, ServerConnectToken, connect_token_to_bytes};
 
 //-------------------------------------------------------------------------------------------------------------------
 
