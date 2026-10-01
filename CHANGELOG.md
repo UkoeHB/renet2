@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.17.0 - 10/01/26
+
+- Rust edition 2021 -> 2024.
+
+
 ## 0.16.3 - 09/27/26
 
 - Add `has_client` and `clients_id_iter` methods to server transports.
