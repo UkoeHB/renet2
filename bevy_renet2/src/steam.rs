@@ -35,6 +35,8 @@ impl Plugin for SteamServerPlugin {
             PostUpdate,
             (Self::send_packets.in_set(RenetSend), Self::disconnect_on_exit).run_if(resource_exists::<RenetServer>),
         );
+
+        app.add_observer(Self::disconnect_on_removed);
     }
 }
 
@@ -62,6 +64,18 @@ impl SteamServerPlugin {
             transport.disconnect_all(&mut server, false);
         }
     }
+
+    pub fn disconnect_on_removed(
+        _: On<Remove, (SteamServerTransport, RenetServer)>,
+        transport: Option<ResMut<SteamServerTransport>>,
+        server: Option<ResMut<RenetServer>>,
+    ) {
+        if let Some(mut server) = server
+            && let Some(mut transport) = transport
+        {
+            transport.disconnect_all(&mut server, false);
+        }
+    }
 }
 
 impl Plugin for SteamClientPlugin {
@@ -82,6 +96,8 @@ impl Plugin for SteamClientPlugin {
                 .run_if(resource_exists::<SteamClientTransport>)
                 .run_if(client_should_update()),
         );
+
+        app.add_observer(Self::disconnect_on_removed);
     }
 }
 
@@ -102,6 +118,12 @@ impl SteamClientPlugin {
 
     pub fn disconnect_on_exit(exit: MessageReader<AppExit>, mut transport: ResMut<SteamClientTransport>) {
         if !exit.is_empty() {
+            transport.disconnect();
+        }
+    }
+
+    pub fn disconnect_on_removed(_: On<Remove, (SteamClientTransport, RenetClient)>, transport: Option<ResMut<SteamClientTransport>>) {
+        if let Some(mut transport) = transport {
             transport.disconnect();
         }
     }
