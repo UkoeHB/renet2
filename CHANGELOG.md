@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.17.1 - 10/05/26
+
+- Use observers to send best-effort disconnect messages when transport resources are removed. These messages have no delivery guarantees.
+
+
 ## 0.17.0 - 10/01/26
 
 - Rust edition 2021 -> 2024.
