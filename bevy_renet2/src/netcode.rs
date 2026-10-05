@@ -37,7 +37,8 @@ impl Plugin for NetcodeServerPlugin {
             Self::disconnect_on_exit
                 .run_if(resource_exists::<NetcodeServerTransport>)
                 .run_if(resource_exists::<RenetServer>),
-        );
+        )
+        .add_observer(Self::disconnect_on_removed);
     }
 }
 
@@ -69,6 +70,18 @@ impl NetcodeServerPlugin {
             transport.disconnect_all(&mut server);
         }
     }
+
+    pub fn disconnect_on_removed(
+        _: On<Remove, (NetcodeServerTransport, RenetServer)>,
+        transport: Option<ResMut<NetcodeServerTransport>>,
+        server: Option<ResMut<RenetServer>>,
+    ) {
+        if let Some(mut server) = server
+            && let Some(mut transport) = transport
+        {
+            transport.disconnect_all(&mut server);
+        }
+    }
 }
 
 impl Plugin for NetcodeClientPlugin {
@@ -95,7 +108,8 @@ impl Plugin for NetcodeClientPlugin {
             Self::disconnect_on_exit
                 .run_if(resource_exists::<NetcodeClientTransport>)
                 .run_if(client_should_update()),
-        );
+        )
+        .add_observer(Self::disconnect_on_removed);
     }
 }
 
@@ -123,6 +137,12 @@ impl NetcodeClientPlugin {
 
     pub fn disconnect_on_exit(exit: MessageReader<AppExit>, mut transport: ResMut<NetcodeClientTransport>) {
         if !exit.is_empty() {
+            transport.disconnect();
+        }
+    }
+
+    pub fn disconnect_on_removed(_: On<Remove, (NetcodeClientTransport, RenetClient)>, transport: Option<ResMut<NetcodeClientTransport>>) {
+        if let Some(mut transport) = transport {
             transport.disconnect();
         }
     }
