@@ -151,6 +151,10 @@ pub struct RenetClient {
     available_bytes_per_tick: u64,
     connection_status: RenetConnectionStatus,
     rtt: f64,
+    // ------ Scratch space for packets -------
+    u64_scratch: Vec<u64>,
+    packets_scratch: Vec<Packet>,
+    payloads_ser_scratch: Vec<Payload>,
 }
 
 impl RenetClient {
@@ -266,6 +270,9 @@ impl RenetClient {
             rtt: 0.0,
             available_bytes_per_tick,
             connection_status: RenetConnectionStatus::Connecting,
+            u64_scratch: Vec::new(),
+            packets_scratch: Vec::new(),
+            payloads_ser_scratch: Vec::new(),
         }
     }
 
@@ -446,11 +453,11 @@ impl RenetClient {
         }
 
         // Discard lost packets
-        let mut lost_packets: Vec<u64> = Vec::new();
+        self.u64_scratch.clear();
         for (&sequence, sent_packet) in self.sent_packets.iter() {
             const DISCARD_AFTER: Duration = Duration::from_secs(3);
             if self.current_time - sent_packet.sent_at >= DISCARD_AFTER {
-                lost_packets.push(sequence);
+                self.u64_scratch.push(sequence);
             } else {
                 // If the current packet is not lost, the next ones will not be lost
                 // since all the next packets were sent after this one.
@@ -458,7 +465,7 @@ impl RenetClient {
             }
         }
 
-        for sequence in lost_packets.iter() {
+        for sequence in self.u64_scratch.iter() {
             self.sent_packets.remove(sequence);
         }
     }
@@ -531,14 +538,14 @@ impl RenetClient {
             Packet::Ack { ack_ranges, .. } => {
                 // Create list with just new acks
                 // This prevents DoS from huge ack ranges
-                let mut new_acks: Vec<u64> = Vec::new();
+                self.u64_scratch.clear();
                 for range in ack_ranges {
                     for (&sequence, _) in self.sent_packets.range(range) {
-                        new_acks.push(sequence)
+                        self.u64_scratch.push(sequence)
                     }
                 }
 
-                for packet_sequence in new_acks {
+                for packet_sequence in self.u64_scratch.iter().copied() {
                     let sent_packet = self.sent_packets.remove(&packet_sequence).unwrap();
                     self.stats.acked_packet(sent_packet.sent_at, self.current_time);
 
@@ -570,7 +577,7 @@ impl RenetClient {
                             channel.process_slice_message_ack(message_id, slice_index);
                         }
                         PacketSentInfo::Ack { largest_acked_packet } => {
-                            self.acked_largest(largest_acked_packet);
+                            Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
                         }
                         PacketSentInfo::None => {}
                     }
@@ -583,10 +590,10 @@ impl RenetClient {
     /// <p style="background:rgba(77,220,255,0.16);padding:0.5em;">
     /// <strong>Note:</strong> This should only be called by the transport layer.
     /// </p>
-    pub fn get_packets_to_send(&mut self) -> Vec<Payload> {
-        let mut packets: Vec<Packet> = vec![];
+    pub fn get_packets_to_send(&mut self) -> &[Payload] {
+        self.packets_scratch.clear();
         if self.is_disconnected() {
-            return vec![];
+            return &[];
         }
 
         let mut available_bytes = self.available_bytes_per_tick;
@@ -596,13 +603,18 @@ impl RenetClient {
                     let SendChannel::Reliable(channel) = self.send_channels.get_mut(*channel_id as usize).unwrap() else {
                         panic!("Packet to send has invalid channel {channel_id}");
                     };
-                    packets.append(&mut channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes, self.current_time));
+                    self.packets_scratch.append(&mut channel.get_packets_to_send(
+                        &mut self.packet_sequence,
+                        &mut available_bytes,
+                        self.current_time,
+                    ));
                 }
                 ChannelOrder::Unreliable(channel_id) => {
                     let SendChannel::Unreliable(channel) = self.send_channels.get_mut(*channel_id as usize).unwrap() else {
                         panic!("Packet to send has invalid channel {channel_id}");
                     };
-                    packets.append(&mut channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes));
+                    self.packets_scratch
+                        .append(&mut channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes));
                 }
             }
         }
@@ -613,11 +625,11 @@ impl RenetClient {
                 ack_ranges: self.pending_acks.clone(),
             };
             self.packet_sequence += 1;
-            packets.push(ack_packet);
+            self.packets_scratch.push(ack_packet);
         }
 
         let sent_at = self.current_time;
-        for packet in packets.iter() {
+        for packet in self.packets_scratch.iter() {
             match packet {
                 Packet::SmallReliable {
                     sequence,
@@ -685,25 +697,25 @@ impl RenetClient {
         }
 
         let mut buffer = [0u8; 1400];
-        let mut serialized_packets = Vec::with_capacity(packets.len());
+        self.payloads_ser_scratch.clear();
         let mut bytes_sent: u64 = 0;
-        for packet in packets {
+        for packet in self.packets_scratch.iter() {
             let mut oct = OctetsMut::with_slice(&mut buffer);
             let len = match packet.to_bytes(&mut oct) {
                 Err(err) => {
                     self.disconnect_with_reason(DisconnectReason::PacketSerialization(err));
-                    return vec![];
+                    return &[];
                 }
                 Ok(len) => len,
             };
 
             bytes_sent += len as u64;
-            serialized_packets.push(buffer[..len].to_vec());
+            self.payloads_ser_scratch.push(buffer[..len].to_vec());
         }
 
-        self.stats.sent_packets(serialized_packets.len() as u64, bytes_sent);
+        self.stats.sent_packets(self.payloads_ser_scratch.len() as u64, bytes_sent);
 
-        serialized_packets
+        &self.payloads_ser_scratch
     }
 
     fn add_pending_ack(&mut self, sequence: u64) {
@@ -754,9 +766,9 @@ impl RenetClient {
         }
     }
 
-    fn acked_largest(&mut self, largest_ack: u64) {
-        while !self.pending_acks.is_empty() {
-            let range: &mut Range<u64> = &mut self.pending_acks[0];
+    fn acked_largest(pending_acks: &mut Vec<Range<u64>>, largest_ack: u64) {
+        while !pending_acks.is_empty() {
+            let range: &mut Range<u64> = &mut pending_acks[0];
 
             // Largest ack is below the range, stop checking
             if largest_ack < range.start {
@@ -765,7 +777,7 @@ impl RenetClient {
 
             // Largest ack is above the range, remove it
             if range.end <= largest_ack {
-                self.pending_acks.remove(0);
+                pending_acks.remove(0);
                 continue;
             }
 
@@ -773,7 +785,7 @@ impl RenetClient {
             // Update start
             range.start = largest_ack + 1;
             if range.is_empty() {
-                self.pending_acks.remove(0);
+                pending_acks.remove(0);
             }
 
             return;
@@ -828,20 +840,20 @@ mod tests {
 
         assert_eq!(connection.pending_acks, vec![0..10]);
 
-        connection.acked_largest(0);
+        RenetClient::acked_largest(&mut connection.pending_acks, 0);
         assert_eq!(connection.pending_acks, vec![1..10]);
 
-        connection.acked_largest(3);
+        RenetClient::acked_largest(&mut connection.pending_acks, 3);
         assert_eq!(connection.pending_acks, vec![4..10]);
 
         connection.add_pending_ack(0);
         assert_eq!(connection.pending_acks, vec![0..1, 4..10]);
-        connection.acked_largest(5);
+        RenetClient::acked_largest(&mut connection.pending_acks, 5);
         assert_eq!(connection.pending_acks, vec![6..10]);
 
         connection.add_pending_ack(0);
         assert_eq!(connection.pending_acks, vec![0..1, 6..10]);
-        connection.acked_largest(10);
+        RenetClient::acked_largest(&mut connection.pending_acks, 10);
         assert_eq!(connection.pending_acks, vec![]);
     }
 

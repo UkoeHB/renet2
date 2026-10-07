@@ -258,7 +258,7 @@ impl RenetServer {
     /// <p style="background:rgba(77,220,255,0.16);padding:0.5em;">
     /// <strong>Note:</strong> This should only be called by the transport layer.
     /// </p>
-    pub fn get_packets_to_send(&mut self, client_id: ClientId) -> Result<Vec<Payload>, ClientNotFound> {
+    pub fn get_packets_to_send(&mut self, client_id: ClientId) -> Result<&[Payload], ClientNotFound> {
         match self.connections.get_mut(&client_id) {
             Some(connection) => Ok(connection.get_packets_to_send()),
             None => Err(ClientNotFound),

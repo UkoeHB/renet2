@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## WIP
+
+- Optimization: Remove temp allocations from `renet2::remote_connection.rs`.
+
+
 ## 0.17.1 - 10/05/26
 
 - Use observers to send best-effort disconnect messages when transport resources are removed. These messages have no delivery guarantees.
