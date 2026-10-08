@@ -7,6 +7,7 @@ use bytes::Bytes;
 
 use super::SliceConstructor;
 use crate::{
+    channel::slice_constructor::SliceConstructorCache,
     error::ChannelError,
     packet::{Packet, SLICE_SIZE, Slice},
 };
@@ -35,6 +36,11 @@ pub struct SendChannelReliable {
     resend_time: Duration,
     max_memory_usage_bytes: usize,
     memory_usage_bytes: usize,
+    // ----- Scratch space -----
+    // Drained after use
+    packets_to_send: Vec<Packet>,
+    // Internal vecs are popped and pushed and cleared on push
+    small_messages_cache: Vec<Vec<(u64, Bytes)>>,
 }
 
 #[derive(Debug)]
@@ -54,6 +60,8 @@ pub struct ReceiveChannelReliable {
     reliable_order: ReliableOrder,
     memory_usage_bytes: usize,
     max_memory_usage_bytes: usize,
+    // ----- Scratch space -----
+    slice_cache: SliceConstructorCache,
 }
 
 impl UnackedMessage {
@@ -80,6 +88,8 @@ impl SendChannelReliable {
             resend_time,
             max_memory_usage_bytes,
             memory_usage_bytes: 0,
+            packets_to_send: Vec::new(),
+            small_messages_cache: Vec::new(),
         }
     }
 
@@ -91,14 +101,21 @@ impl SendChannelReliable {
         size_bytes + self.memory_usage_bytes <= self.max_memory_usage_bytes
     }
 
-    pub fn get_packets_to_send(&mut self, packet_sequence: &mut u64, available_bytes: &mut u64, current_time: Duration) -> Vec<Packet> {
+    pub fn get_packets_to_send(&mut self, packet_sequence: &mut u64, available_bytes: &mut u64, current_time: Duration) -> &[Packet] {
         if self.unacked_messages.is_empty() {
-            return vec![];
+            return &[];
         }
 
-        let mut packets: Vec<Packet> = vec![];
+        self.small_messages_cache
+            .extend(self.packets_to_send.drain(..).filter_map(|p| match p {
+                Packet::SmallReliable { mut messages, .. } => {
+                    messages.clear();
+                    Some(messages)
+                }
+                _ => None,
+            }));
 
-        let mut small_messages: Vec<(u64, Bytes)> = vec![];
+        let mut small_messages = self.small_messages_cache.pop().unwrap_or_default();
         let mut small_messages_bytes = 0;
 
         'messages: for (&message_id, unacked_message) in self.unacked_messages.iter_mut() {
@@ -120,10 +137,10 @@ impl SendChannelReliable {
                     // Generate packet with small messages if you cannot fit
                     let serialized_size = message.len() + octets::varint_len(message.len() as u64) + octets::varint_len(message_id);
                     if small_messages_bytes + serialized_size > SLICE_SIZE {
-                        packets.push(Packet::SmallReliable {
+                        self.packets_to_send.push(Packet::SmallReliable {
                             sequence: *packet_sequence,
                             channel_id: self.channel_id,
-                            messages: std::mem::take(&mut small_messages),
+                            messages: std::mem::replace(&mut small_messages, self.small_messages_cache.pop().unwrap_or_default()),
                         });
                         small_messages_bytes = 0;
                         *packet_sequence += 1;
@@ -174,7 +191,7 @@ impl SendChannelReliable {
                             payload,
                         };
 
-                        packets.push(Packet::ReliableSlice {
+                        self.packets_to_send.push(Packet::ReliableSlice {
                             sequence: *packet_sequence,
                             channel_id: self.channel_id,
                             slice,
@@ -190,15 +207,17 @@ impl SendChannelReliable {
 
         // Generate final packet for remaining small messages
         if !small_messages.is_empty() {
-            packets.push(Packet::SmallReliable {
+            self.packets_to_send.push(Packet::SmallReliable {
                 sequence: *packet_sequence,
                 channel_id: self.channel_id,
                 messages: std::mem::take(&mut small_messages),
             });
             *packet_sequence += 1;
+        } else if small_messages.capacity() > 0 {
+            self.small_messages_cache.push(small_messages);
         }
 
-        packets
+        &self.packets_to_send
     }
 
     pub fn send_message(&mut self, message: Bytes) -> Result<(), ChannelError> {
@@ -275,6 +294,7 @@ impl ReceiveChannelReliable {
             reliable_order,
             memory_usage_bytes: 0,
             max_memory_usage_bytes,
+            slice_cache: SliceConstructorCache::default(),
         }
     }
 
@@ -335,13 +355,13 @@ impl ReceiveChannelReliable {
         let slice_constructor = self
             .slices
             .entry(slice.message_id)
-            .or_insert_with(|| SliceConstructor::new(slice.message_id, slice.num_slices));
+            .or_insert_with(|| SliceConstructor::new(slice.message_id, slice.num_slices, &mut self.slice_cache));
 
         if let Some(message) = slice_constructor.process_slice(slice.slice_index, &slice.payload)? {
             // Memory usage is re-added with the exactly message size
             self.memory_usage_bytes -= slice.num_slices * SLICE_SIZE;
             self.process_message(message, slice.message_id)?;
-            self.slices.remove(&slice.message_id);
+            self.slice_cache.try_recover(self.slices.remove(&slice.message_id));
         }
 
         Ok(())
@@ -407,8 +427,8 @@ mod tests {
             else {
                 unreachable!();
             };
-            for (message, message_id) in messages {
-                recv.process_message(message_id, message).unwrap();
+            for (message_id, message) in messages {
+                recv.process_message(message.clone(), *message_id).unwrap();
             }
         }
 
@@ -525,7 +545,7 @@ mod tests {
             let Packet::ReliableSlice { channel_id: 0, slice, .. } = packet else {
                 unreachable!();
             };
-            recv.process_slice(slice).unwrap();
+            recv.process_slice(slice.clone()).unwrap();
         }
 
         let new_message = recv.receive_message().unwrap();
@@ -574,8 +594,8 @@ mod tests {
             else {
                 unreachable!();
             };
-            for (message, message_id) in messages {
-                let Err(e) = recv.process_message(message_id, message) else {
+            for (message_id, message) in messages {
+                let Err(e) = recv.process_message(message.clone(), *message_id) else {
                     unreachable!();
                 };
                 assert_eq!(e, ChannelError::ReliableChannelMaxMemoryReached);

@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::{error::ChannelError, packet::SLICE_SIZE};
+use crate::{error::ChannelError, packet::SLICE_SIZE, zero_reinit_buffer};
 
 #[derive(Debug, Clone)]
 pub struct SliceConstructor {
@@ -12,13 +12,17 @@ pub struct SliceConstructor {
 }
 
 impl SliceConstructor {
-    pub fn new(message_id: u64, num_slices: usize) -> Self {
+    pub fn new(message_id: u64, num_slices: usize, cache: &mut SliceConstructorCache) -> Self {
+        let mut received = cache.received.pop().unwrap_or_default();
+        let mut sliced_data = cache.sliced_data.pop().unwrap_or_default();
+        received.resize(num_slices, false);
+        zero_reinit_buffer(&mut sliced_data, num_slices * SLICE_SIZE);
         SliceConstructor {
             message_id,
             num_slices,
             num_received_slices: 0,
-            received: vec![false; num_slices],
-            sliced_data: vec![0; num_slices * SLICE_SIZE],
+            received,
+            sliced_data,
         }
     }
 
@@ -71,5 +75,21 @@ impl SliceConstructor {
         }
 
         Ok(None)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SliceConstructorCache {
+    received: Vec<Vec<bool>>,
+    sliced_data: Vec<Vec<u8>>,
+}
+
+impl SliceConstructorCache {
+    pub fn try_recover(&mut self, maybe_old: Option<SliceConstructor>) {
+        let Some(mut old) = maybe_old else { return };
+        old.received.clear();
+        old.sliced_data.clear();
+        self.received.push(old.received);
+        self.sliced_data.push(old.sliced_data);
     }
 }

@@ -219,6 +219,9 @@ impl RenetServer {
     }
 
     /// Return ids for all connected clients
+    // TODO: Is it more efficient to use Hashmap<ClientId, Arc<bool>> to track client list w/ connected flag?
+    // Then use `connected_client_scope(FnMut(impl Iterator<ClientId>, &mut Self))`? If caller adds/removes
+    // clients, need to sync with removed hashmap after closure ends. Need to perf test this.
     pub fn clients_id(&self) -> Vec<ClientId> {
         self.clients_id_iter().collect()
     }

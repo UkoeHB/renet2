@@ -6,7 +6,7 @@ use std::{
 use bytes::Bytes;
 
 use crate::{
-    channel::SliceConstructor,
+    channel::{SliceConstructor, slice_constructor::SliceConstructorCache},
     error::ChannelError,
     packet::{Packet, SLICE_SIZE, Slice},
 };
@@ -23,6 +23,11 @@ pub struct SendChannelUnreliable {
     // unreliable channels will behave like reliable channels by not dropping messages when
     // there are too many bytes to send in one tick.
     ordered_reliable_substrate: bool,
+    // ----- Scratch space -----
+    // Drained after use
+    packets_to_send: Vec<Packet>,
+    // Internal vecs are popped and pushed and cleared on push
+    small_messages_cache: Vec<Vec<Bytes>>,
 }
 
 #[derive(Debug)]
@@ -33,6 +38,8 @@ pub struct ReceiveChannelUnreliable {
     slices_last_received: BTreeMap<u64, Duration>,
     max_memory_usage_bytes: usize,
     memory_usage_bytes: usize,
+    // ----- Scratch space -----
+    slice_cache: SliceConstructorCache,
 }
 
 impl SendChannelUnreliable {
@@ -44,6 +51,8 @@ impl SendChannelUnreliable {
             max_memory_usage_bytes,
             memory_usage_bytes: 0,
             ordered_reliable_substrate,
+            packets_to_send: Vec::new(),
+            small_messages_cache: Vec::new(),
         }
     }
 
@@ -55,9 +64,16 @@ impl SendChannelUnreliable {
         self.max_memory_usage_bytes - self.memory_usage_bytes
     }
 
-    pub fn get_packets_to_send(&mut self, packet_sequence: &mut u64, available_bytes: &mut u64) -> Vec<Packet> {
-        let mut packets: Vec<Packet> = vec![];
-        let mut small_messages: Vec<Bytes> = vec![];
+    pub fn get_packets_to_send(&mut self, packet_sequence: &mut u64, available_bytes: &mut u64) -> &[Packet] {
+        self.small_messages_cache
+            .extend(self.packets_to_send.drain(..).filter_map(|p| match p {
+                Packet::SmallUnreliable { mut messages, .. } => {
+                    messages.clear();
+                    Some(messages)
+                }
+                _ => None,
+            }));
+        let mut small_messages = self.small_messages_cache.pop().unwrap_or_default();
         let mut small_messages_bytes = 0;
 
         let mut overflow_messages = vec![];
@@ -91,7 +107,7 @@ impl SendChannelUnreliable {
                         payload,
                     };
 
-                    packets.push(Packet::UnreliableSlice {
+                    self.packets_to_send.push(Packet::UnreliableSlice {
                         sequence: *packet_sequence,
                         channel_id: self.channel_id,
                         slice,
@@ -103,10 +119,10 @@ impl SendChannelUnreliable {
             } else {
                 let serialized_size = message.len() + octets::varint_len(message.len() as u64);
                 if small_messages_bytes + serialized_size > SLICE_SIZE {
-                    packets.push(Packet::SmallUnreliable {
+                    self.packets_to_send.push(Packet::SmallUnreliable {
                         sequence: *packet_sequence,
                         channel_id: self.channel_id,
-                        messages: std::mem::take(&mut small_messages),
+                        messages: std::mem::replace(&mut small_messages, self.small_messages_cache.pop().unwrap_or_default()),
                     });
                     *packet_sequence += 1;
                     small_messages_bytes = 0;
@@ -124,15 +140,17 @@ impl SendChannelUnreliable {
 
         // Generate final packet for remaining small messages
         if !small_messages.is_empty() {
-            packets.push(Packet::SmallUnreliable {
+            self.packets_to_send.push(Packet::SmallUnreliable {
                 sequence: *packet_sequence,
                 channel_id: self.channel_id,
                 messages: std::mem::take(&mut small_messages),
             });
             *packet_sequence += 1;
+        } else if small_messages.capacity() > 0 {
+            self.small_messages_cache.push(small_messages);
         }
 
-        packets
+        &self.packets_to_send
     }
 
     pub fn send_message(&mut self, message: Bytes) {
@@ -166,6 +184,7 @@ impl ReceiveChannelUnreliable {
             messages: VecDeque::new(),
             memory_usage_bytes: 0,
             max_memory_usage_bytes,
+            slice_cache: SliceConstructorCache::default(),
         }
     }
 
@@ -199,10 +218,10 @@ impl ReceiveChannelUnreliable {
         let slice_constructor = self
             .slices
             .entry(slice.message_id)
-            .or_insert_with(|| SliceConstructor::new(slice.message_id, slice.num_slices));
+            .or_insert_with(|| SliceConstructor::new(slice.message_id, slice.num_slices, &mut self.slice_cache));
 
         if let Some(message) = slice_constructor.process_slice(slice.slice_index, &slice.payload)? {
-            self.slices.remove(&slice.message_id);
+            self.slice_cache.try_recover(self.slices.remove(&slice.message_id));
             self.slices_last_received.remove(&slice.message_id);
             self.memory_usage_bytes -= slice.num_slices * SLICE_SIZE;
             self.memory_usage_bytes += message.len();
@@ -231,6 +250,7 @@ impl ReceiveChannelUnreliable {
             self.slices_last_received.remove(message_id);
             let slice = self.slices.remove(message_id).expect("discarded slice should exist");
             self.memory_usage_bytes -= slice.num_slices * SLICE_SIZE;
+            self.slice_cache.try_recover(Some(slice));
         }
     }
 
@@ -270,7 +290,7 @@ mod tests {
                 unreachable!();
             };
             for message in messages {
-                recv.process_message(message);
+                recv.process_message(message.clone());
             }
         }
 
@@ -303,7 +323,7 @@ mod tests {
             let Packet::UnreliableSlice { slice, .. } = packet else {
                 unreachable!();
             };
-            recv.process_slice(slice, current_time).unwrap();
+            recv.process_slice(slice.clone(), current_time).unwrap();
         }
 
         let new_message = recv.receive_message().unwrap();
@@ -336,7 +356,7 @@ mod tests {
             // Second message was dropped
             assert_eq!(messages.len(), 1);
             for message in messages {
-                recv.process_message(message);
+                recv.process_message(message.clone());
             }
         }
 

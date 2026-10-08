@@ -41,7 +41,7 @@ pub enum Packet {
         slice: Slice,
     },
     // Contains the packets that were acked
-    // Acks are saved in multiples ranges, all values in the ranges are considered acked.
+    // Acks are saved in multiple ranges, all values in the ranges are considered acked.
     Ack {
         sequence: u64,
         ack_ranges: Vec<Range<u64>>,

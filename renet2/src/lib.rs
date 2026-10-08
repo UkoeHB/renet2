@@ -17,3 +17,14 @@ pub use bytes::Bytes;
 
 /// Unique identifier for clients.
 pub type ClientId = u64;
+
+/// Resizes `buffer` to `size` and sets all bytes to `0`.
+pub(crate) fn zero_reinit_buffer(buffer: &mut Vec<u8>, size: usize) {
+    buffer.reserve_exact(size.saturating_sub(buffer.capacity()));
+    // SAFETY: writing to capacity
+    unsafe {
+        let ptr = buffer.as_mut_ptr();
+        std::ptr::write_bytes(ptr, 0u8, size);
+        buffer.set_len(size);
+    }
+}

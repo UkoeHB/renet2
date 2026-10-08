@@ -2,7 +2,7 @@
 
 ## WIP
 
-- Optimization: Remove temp allocations from `renet2::remote_connection.rs`.
+- Optimization: Minimize temp allocations in `renet2::remote_connection.rs` and `renet2::channel` by reusing buffers.
 
 
 ## 0.17.1 - 10/05/26
