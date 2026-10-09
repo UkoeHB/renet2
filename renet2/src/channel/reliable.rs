@@ -213,7 +213,7 @@ impl SendChannelReliable {
                 messages: std::mem::take(&mut small_messages),
             });
             *packet_sequence += 1;
-        } else if small_messages.capacity() > 0 {
+        } else if small_messages.capacity() > 0 && self.small_messages_cache.len() < 1_000 {
             self.small_messages_cache.push(small_messages);
         }
 

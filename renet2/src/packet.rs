@@ -73,14 +73,13 @@ impl SmallReliableIterator {
         self.current_idx += 1;
         let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
         let message_id = b.get_varint()?;
-        let message_len = b.get_varint()?;
+        let message_len = b.get_varint()? as usize;
         self.bytes_pos += b.off();
-        let bytes_end = self.bytes_pos.saturating_add(message_len as usize);
-        if bytes_end > self.bytes.len() {
+        if b.cap() < message_len {
             return Err(SerializationError::BufferTooShort);
         }
-        let payload = self.bytes.slice(self.bytes_pos..bytes_end);
-        self.bytes_pos = bytes_end;
+        let payload = self.bytes.slice(self.bytes_pos..(self.bytes_pos + message_len));
+        self.bytes_pos += message_len;
         Ok(Some((message_id, payload)))
     }
 
@@ -114,14 +113,13 @@ impl SmallUnreliableIterator {
         }
         self.current_idx += 1;
         let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
-        let message_len = b.get_varint()?;
+        let message_len = b.get_varint()? as usize;
         self.bytes_pos += b.off();
-        let bytes_end = self.bytes_pos.saturating_add(message_len as usize);
-        if bytes_end > self.bytes.len() {
+        if b.cap() < message_len {
             return Err(SerializationError::BufferTooShort);
         }
-        let payload = self.bytes.slice(self.bytes_pos..bytes_end);
-        self.bytes_pos = bytes_end;
+        let payload = self.bytes.slice(self.bytes_pos..(self.bytes_pos + message_len));
+        self.bytes_pos += message_len;
         Ok(Some(payload))
     }
 
@@ -249,6 +247,7 @@ impl Packet {
         }
     }
 
+    /// Returns number of bytes written to `b`.
     pub fn to_bytes(&self, b: &mut octets::OctetsMut) -> Result<usize, SerializationError> {
         let before = b.cap();
 
@@ -366,7 +365,7 @@ impl Packet {
     /// and discard them.
     #[allow(unused)]
     pub fn from_bytes(data: &[u8]) -> Result<Self, SerializationError> {
-        PacketPartialDeser::from_bytes(data)?.into_packet()
+        PacketPartialDeser::from_raw_bytes(data)?.into_packet()
     }
 }
 
@@ -381,9 +380,12 @@ impl PacketPartialDeser {
         }
     }
 
-    pub fn from_bytes(data: &[u8]) -> Result<Self, SerializationError> {
-        // This is the only potential allocation we need.
-        let bytes = Bytes::copy_from_slice(data);
+    pub fn from_raw_bytes(data: &[u8]) -> Result<Self, SerializationError> {
+        // This is the only allocation we need.
+        Self::from_bytes(Bytes::copy_from_slice(data))
+    }
+
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, SerializationError> {
         let mut b = octets::Octets::with_slice(&bytes);
 
         let packet_type = b.get_u8()?;
@@ -423,13 +425,11 @@ impl PacketPartialDeser {
                     return Err(SerializationError::InvalidNumSlices);
                 }
 
-                let message_len = b.get_varint()?;
-                let buffer_start = b.off();
-                let buffer_end = buffer_start.saturating_add(message_len as usize);
-                if buffer_end > bytes.len() {
+                let message_len = b.get_varint()? as usize;
+                if b.cap() < message_len {
                     return Err(SerializationError::BufferTooShort);
                 }
-                let payload = bytes.slice(buffer_start..buffer_end);
+                let payload = bytes.slice(b.off()..b.off() + message_len);
 
                 if payload.is_empty() {
                     return Err(SerializationError::EmptySlice);
@@ -462,13 +462,11 @@ impl PacketPartialDeser {
                     return Err(SerializationError::InvalidNumSlices);
                 }
 
-                let message_len = b.get_varint()?;
-                let buffer_start = b.off();
-                let buffer_end = buffer_start.saturating_add(message_len as usize);
-                if buffer_end > bytes.len() {
+                let message_len = b.get_varint()? as usize;
+                if b.cap() < message_len {
                     return Err(SerializationError::BufferTooShort);
                 }
-                let payload = bytes.slice(buffer_start..buffer_end);
+                let payload = bytes.slice(b.off()..b.off() + message_len);
 
                 let slice = Slice {
                     message_id,

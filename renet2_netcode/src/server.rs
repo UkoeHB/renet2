@@ -205,7 +205,7 @@ impl NetcodeServerTransport {
 
     /// Sends packets to connected clients.
     ///
-    /// Disconnects clients if their address connectiones are broken.
+    /// Disconnects clients if their address connections are broken.
     pub fn send_packets(&mut self, server: &mut RenetServer) {
         //TODO: it isn't necessary to allocate client ids here, just use one big vec of packets for all clients
         // - also, the vec can be cached in RenetServer for reuse, and likewise with the internal pieces of packets

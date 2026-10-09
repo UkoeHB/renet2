@@ -501,7 +501,7 @@ impl RenetClient {
         }
 
         self.stats.received_packet(packet.len() as u64);
-        let partial = PacketPartialDeser::from_bytes(packet).map_err(DisconnectReason::PacketDeserialization)?;
+        let partial = PacketPartialDeser::from_raw_bytes(packet).map_err(DisconnectReason::PacketDeserialization)?;
 
         self.add_pending_ack(partial.sequence());
 
@@ -691,15 +691,10 @@ impl RenetClient {
             const PACKET_SIZE: usize = 1400;
             zero_reinit_buffer(&mut buffer, PACKET_SIZE);
             let mut oct = OctetsMut::with_slice(buffer.as_mut_slice());
-            let len = match packet.to_bytes(&mut oct) {
-                Err(err) => {
-                    return Err(DisconnectReason::PacketSerialization(err));
-                }
-                Ok(len) => len,
-            };
+            let len = packet.to_bytes(&mut oct).map_err(DisconnectReason::PacketSerialization)?;
 
             bytes_sent += len as u64;
-            buffer.resize(len, 0);
+            buffer.resize(len, 0); // should always be <= existing size
             self.payloads_ser.push(buffer);
 
             Ok(())
@@ -742,11 +737,7 @@ impl RenetClient {
             };
             self.packet_sequence += 1;
             if let Err(err) = apply_packet(&ack_packet) {
-                let Packet::Ack { mut ack_ranges, .. } = ack_packet else {
-                    unreachable!();
-                };
-                ack_ranges.clear();
-                self.ack_ranges_reuse = ack_ranges;
+                // disconnecting, don't care about ack_ranges reuse
                 self.disconnect_with_reason(err);
                 return &[];
             }
