@@ -129,46 +129,68 @@ impl SmallUnreliableIterator {
     }
 }
 
-// TODO: rework ack ranges serialization to do increasing offsets instead of decreasing so this iterator
-// will work
-// #[derive(Debug)]
-// pub struct AckRangesIterator {
-//     len: u16,
-//     current_idx: u16,
-//     bytes: Bytes,
-//     bytes_pos: usize,
-// }
+#[derive(Debug)]
+pub struct AckRangesIterator {
+    first_range: Range<u64>,
+    len: u64,
+    current_idx: u64,
+    bytes: Bytes,
+    bytes_pos: usize,
+    prev_end: u64,
+}
 
-// impl AckRangesIterator {
-//     pub fn new(len: u16, bytes: Bytes) -> Self {
-//         Self {
-//             len,
-//             current_idx: 0,
-//             bytes,
-//             bytes_pos: 0,
-//         }
-//     }
+impl AckRangesIterator {
+    pub fn new(first_range: Range<u64>, len_extra: u64, bytes: Bytes) -> Self {
+        Self {
+            first_range,
+            len: len_extra + 1,
+            current_idx: 0,
+            bytes,
+            bytes_pos: 0,
+            prev_end: 0,
+        }
+    }
 
-//     pub fn next(&mut self) -> Result<Option<Bytes>, SerializationError> {
-//         if self.current_idx >= self.len { return Ok(None) }
-//         self.current_idx += 1;
-//         let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
-//         let message_len = b.get_varint()?;
-//         self.bytes_pos += b.off();
-//         let bytes_end = self.bytes_pos.saturating_add(message_len as usize);
-//         if bytes_end > self.bytes.len() {
-//             return Err(SerializationError::BufferTooShort);
-//         }
-//         let payload = self.bytes.slice(self.bytes_pos..bytes_end);
-//         self.bytes_pos = bytes_end;
-//         Ok(Some(payload))
-//     }
+    pub fn next(&mut self) -> Result<Option<Range<u64>>, SerializationError> {
+        if self.current_idx >= self.len {
+            return Ok(None);
+        }
+        if self.current_idx == 0 {
+            self.current_idx += 1;
+            self.prev_end = self.first_range.end;
+            return Ok(Some(self.first_range.clone()));
+        }
+        self.current_idx += 1;
 
-//     pub fn reset(&mut self) {
-//         self.current_idx = 0;
-//         self.bytes_pos = 0;
-//     }
-// }
+        // Get the gap between the previous range and the current one
+        let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
+        let gap = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
+
+        if self.prev_end > u64::MAX - gap {
+            return Err(SerializationError::InvalidAckRange);
+        }
+
+        // Get the end of the current range using the start of the previous one and the gap
+        let range_start = self.prev_end + gap;
+        let range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
+
+        if range_start > u64::MAX - range_size {
+            return Err(SerializationError::InvalidAckRange);
+        }
+
+        let range_end = range_start + range_size;
+        self.prev_end = range_end;
+        self.bytes_pos += b.off();
+
+        Ok(Some(range_start..range_end))
+    }
+
+    pub fn reset(&mut self) {
+        self.current_idx = 0;
+        self.bytes_pos = 0;
+        self.prev_end = 0;
+    }
+}
 
 /// A partially deserialized packet.
 ///
@@ -197,8 +219,7 @@ pub enum PacketPartialDeser {
     },
     Ack {
         sequence: u64,
-        ack_ranges: Vec<Range<u64>>,
-        // ack_ranges: AckRangesIterator,
+        ack_ranges: AckRangesIterator,
     },
 }
 
@@ -500,33 +521,11 @@ impl PacketPartialDeser {
                     return Err(SerializationError::InvalidAckRange);
                 }
 
-                let mut ack_ranges: Vec<Range<u64>> = Vec::with_capacity(32);
-
-                let first_range_end = first_range_start + first_range_size;
-                ack_ranges.push(first_range_start..first_range_end);
-
-                let mut previous_range_end = first_range_end;
-                for _ in 0..num_remaining_ranges {
-                    // Get the gap between the previous range and the current one
-                    let gap = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
-
-                    if previous_range_end > u64::MAX - gap {
-                        return Err(SerializationError::InvalidAckRange);
-                    }
-
-                    // Get the end of the current range using the start of the previous one and the gap
-                    let range_start = previous_range_end + gap;
-                    let range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
-
-                    if range_start > u64::MAX - range_size {
-                        return Err(SerializationError::InvalidAckRange);
-                    }
-
-                    let range_end = range_start + range_size;
-                    ack_ranges.push(range_start..range_end);
-
-                    previous_range_end = range_end;
-                }
+                let ack_ranges = AckRangesIterator::new(
+                    first_range_start..(first_range_start + first_range_size),
+                    num_remaining_ranges,
+                    bytes.slice(b.off()..),
+                );
 
                 Ok(Self::Ack { sequence, ack_ranges })
             }
@@ -587,13 +586,16 @@ impl PacketPartialDeser {
                 channel_id,
                 slice,
             }),
-            Self::Ack { sequence, ack_ranges } => {
-                // ack_ranges.reset();
-                // let mut accumulated = Vec::with_capacity(ack_ranges.len);
-                // while let Some(range) = ack_ranges.next()? {
-                //     accumulated.push(range);
-                // }
-                Ok(Packet::Ack { sequence, ack_ranges })
+            Self::Ack { sequence, mut ack_ranges } => {
+                ack_ranges.reset();
+                let mut accumulated = Vec::with_capacity(ack_ranges.len as usize);
+                while let Some(range) = ack_ranges.next()? {
+                    accumulated.push(range);
+                }
+                Ok(Packet::Ack {
+                    sequence,
+                    ack_ranges: accumulated,
+                })
             }
         }
     }

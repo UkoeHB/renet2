@@ -548,11 +548,11 @@ impl RenetClient {
                     .process_slice(slice, self.current_time)
                     .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
             }
-            PacketPartialDeser::Ack { ack_ranges, .. } => {
+            PacketPartialDeser::Ack { mut ack_ranges, .. } => {
                 // Create list with just new acks
                 // This prevents DoS from huge ack ranges
                 self.u64_scratch.clear();
-                for range in ack_ranges {
+                while let Some(range) = ack_ranges.next().map_err(DisconnectReason::PacketDeserialization)? {
                     for (&sequence, _) in self.sent_packets.range(range) {
                         self.u64_scratch.push(sequence)
                     }
