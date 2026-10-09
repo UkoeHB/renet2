@@ -3,7 +3,7 @@ use crate::channel::unreliable::{ReceiveChannelUnreliable, SendChannelUnreliable
 use crate::channel::{ChannelConfig, DefaultChannel, SendType};
 use crate::connection_stats::ConnectionStats;
 use crate::error::DisconnectReason;
-use crate::packet::{Packet, Payload};
+use crate::packet::{Packet, PacketPartialDeser, Payload};
 use crate::zero_reinit_buffer;
 use bytes::Bytes;
 use octets::OctetsMut;
@@ -485,72 +485,70 @@ impl RenetClient {
         }
     }
 
-    /// Process a packet received from the server.
+    /// Process a packet received from the connected client or server.
     /// <p style="background:rgba(77,220,255,0.16);padding:0.5em;">
     /// <strong>Note:</strong> This should only be called by the transport layer.
     /// </p>
     pub fn process_packet(&mut self, packet: &[u8]) {
+        if let Err(reason) = self.process_packet_impl(packet) {
+            self.disconnect_with_reason(reason);
+        }
+    }
+
+    fn process_packet_impl(&mut self, packet: &[u8]) -> Result<(), DisconnectReason> {
         if self.is_disconnected() {
-            return;
+            return Ok(());
         }
 
         self.stats.received_packet(packet.len() as u64);
-        let mut octets = octets::Octets::with_slice(packet);
-        let packet = match Packet::from_bytes(&mut octets) {
-            Err(err) => {
-                self.disconnect_with_reason(DisconnectReason::PacketDeserialization(err));
-                return;
-            }
-            Ok(packet) => packet,
-        };
+        let partial = PacketPartialDeser::from_bytes(packet).map_err(|e| DisconnectReason::PacketDeserialization(e))?;
 
-        self.add_pending_ack(packet.sequence());
+        self.add_pending_ack(partial.sequence());
 
-        match packet {
-            Packet::SmallReliable { channel_id, messages, .. } => {
+        match partial {
+            PacketPartialDeser::SmallReliable {
+                channel_id, mut messages, ..
+            } => {
                 let Some(ReceiveChannel::Reliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                for (message_id, message) in messages {
-                    if let Err(error) = channel.process_message(message, message_id) {
-                        self.disconnect_with_reason(DisconnectReason::ReceiveChannelError { channel_id, error });
-                        return;
-                    }
+                while let Some((message_id, message)) = messages.next().map_err(|e| DisconnectReason::PacketDeserialization(e))? {
+                    channel
+                        .process_message(message, message_id)
+                        .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
                 }
             }
-            Packet::SmallUnreliable { channel_id, messages, .. } => {
+            PacketPartialDeser::SmallUnreliable {
+                channel_id, mut messages, ..
+            } => {
                 let Some(ReceiveChannel::Unreliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                for message in messages {
+                while let Some(message) = messages.next().map_err(|e| DisconnectReason::PacketDeserialization(e))? {
                     channel.process_message(message);
                 }
             }
-            Packet::ReliableSlice { channel_id, slice, .. } => {
+            PacketPartialDeser::ReliableSlice { channel_id, slice, .. } => {
                 let Some(ReceiveChannel::Reliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                if let Err(error) = channel.process_slice(slice) {
-                    self.disconnect_with_reason(DisconnectReason::ReceiveChannelError { channel_id, error });
-                }
+                channel
+                    .process_slice(slice)
+                    .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
             }
-            Packet::UnreliableSlice { channel_id, slice, .. } => {
+            PacketPartialDeser::UnreliableSlice { channel_id, slice, .. } => {
                 let Some(ReceiveChannel::Unreliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                if let Err(error) = channel.process_slice(slice, self.current_time) {
-                    self.disconnect_with_reason(DisconnectReason::ReceiveChannelError { channel_id, error });
-                }
+                channel
+                    .process_slice(slice, self.current_time)
+                    .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
             }
-            Packet::Ack { ack_ranges, .. } => {
+            PacketPartialDeser::Ack { ack_ranges, .. } => {
                 // Create list with just new acks
                 // This prevents DoS from huge ack ranges
                 self.u64_scratch.clear();
@@ -604,6 +602,8 @@ impl RenetClient {
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Returns a list of packets to be sent to the server.

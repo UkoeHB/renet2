@@ -2,7 +2,8 @@
 
 ## WIP
 
-- Optimization: Minimize temp allocations in `renet2::remote_connection.rs` and `renet2::channel` by reusing buffers.
+- Optimization: Minimize temp allocations in `renet2::RenetClient` and `renet2::channel` by reusing buffers.
+- Optimization: Refactor packet handling in `renet2::RenetClient` to avoid allocating when consuming packets.
 
 
 ## 0.17.1 - 10/05/26

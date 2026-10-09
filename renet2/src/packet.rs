@@ -48,6 +48,162 @@ pub enum Packet {
     },
 }
 
+#[derive(Debug)]
+pub struct SmallReliableIterator {
+    len: u16,
+    current_idx: u16,
+    bytes: Bytes,
+    bytes_pos: usize,
+}
+
+impl SmallReliableIterator {
+    pub fn new(len: u16, bytes: Bytes) -> Self {
+        Self {
+            len,
+            current_idx: 0,
+            bytes,
+            bytes_pos: 0,
+        }
+    }
+
+    pub fn next(&mut self) -> Result<Option<(u64, Bytes)>, SerializationError> {
+        if self.current_idx >= self.len {
+            return Ok(None);
+        }
+        self.current_idx += 1;
+        let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
+        let message_id = b.get_varint()?;
+        let message_len = b.get_varint()?;
+        self.bytes_pos += b.off();
+        let bytes_end = self.bytes_pos.saturating_add(message_len as usize);
+        if bytes_end > self.bytes.len() {
+            return Err(SerializationError::BufferTooShort);
+        }
+        let payload = self.bytes.slice(self.bytes_pos..bytes_end);
+        self.bytes_pos = bytes_end;
+        Ok(Some((message_id, payload)))
+    }
+
+    pub fn reset(&mut self) {
+        self.current_idx = 0;
+        self.bytes_pos = 0;
+    }
+}
+
+#[derive(Debug)]
+pub struct SmallUnreliableIterator {
+    len: u16,
+    current_idx: u16,
+    bytes: Bytes,
+    bytes_pos: usize,
+}
+
+impl SmallUnreliableIterator {
+    pub fn new(len: u16, bytes: Bytes) -> Self {
+        Self {
+            len,
+            current_idx: 0,
+            bytes,
+            bytes_pos: 0,
+        }
+    }
+
+    pub fn next(&mut self) -> Result<Option<Bytes>, SerializationError> {
+        if self.current_idx >= self.len {
+            return Ok(None);
+        }
+        self.current_idx += 1;
+        let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
+        let message_len = b.get_varint()?;
+        self.bytes_pos += b.off();
+        let bytes_end = self.bytes_pos.saturating_add(message_len as usize);
+        if bytes_end > self.bytes.len() {
+            return Err(SerializationError::BufferTooShort);
+        }
+        let payload = self.bytes.slice(self.bytes_pos..bytes_end);
+        self.bytes_pos = bytes_end;
+        Ok(Some(payload))
+    }
+
+    pub fn reset(&mut self) {
+        self.current_idx = 0;
+        self.bytes_pos = 0;
+    }
+}
+
+// TODO: rework ack ranges serialization to do increasing offsets instead of decreasing so this iterator
+// will work
+// #[derive(Debug)]
+// pub struct AckRangesIterator {
+//     len: u16,
+//     current_idx: u16,
+//     bytes: Bytes,
+//     bytes_pos: usize,
+// }
+
+// impl AckRangesIterator {
+//     pub fn new(len: u16, bytes: Bytes) -> Self {
+//         Self {
+//             len,
+//             current_idx: 0,
+//             bytes,
+//             bytes_pos: 0,
+//         }
+//     }
+
+//     pub fn next(&mut self) -> Result<Option<Bytes>, SerializationError> {
+//         if self.current_idx >= self.len { return Ok(None) }
+//         self.current_idx += 1;
+//         let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
+//         let message_len = b.get_varint()?;
+//         self.bytes_pos += b.off();
+//         let bytes_end = self.bytes_pos.saturating_add(message_len as usize);
+//         if bytes_end > self.bytes.len() {
+//             return Err(SerializationError::BufferTooShort);
+//         }
+//         let payload = self.bytes.slice(self.bytes_pos..bytes_end);
+//         self.bytes_pos = bytes_end;
+//         Ok(Some(payload))
+//     }
+
+//     pub fn reset(&mut self) {
+//         self.current_idx = 0;
+//         self.bytes_pos = 0;
+//     }
+// }
+
+/// A partially deserialized packet.
+///
+/// Use this to process packets without allocating excessively.
+#[derive(Debug)]
+pub enum PacketPartialDeser {
+    SmallReliable {
+        sequence: u64,
+        channel_id: u8,
+        messages: SmallReliableIterator,
+    },
+    SmallUnreliable {
+        sequence: u64,
+        channel_id: u8,
+        messages: SmallUnreliableIterator,
+    },
+    UnreliableSlice {
+        sequence: u64,
+        channel_id: u8,
+        slice: Slice,
+    },
+    ReliableSlice {
+        sequence: u64,
+        channel_id: u8,
+        slice: Slice,
+    },
+    Ack {
+        sequence: u64,
+        ack_ranges: Vec<Range<u64>>,
+        // ack_ranges: AckRangesIterator,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SerializationError {
     BufferTooShort,
@@ -82,6 +238,7 @@ impl From<octets::BufferTooShortError> for SerializationError {
 }
 
 impl Packet {
+    #[allow(unused)]
     pub fn sequence(&self) -> u64 {
         match self {
             Packet::SmallReliable { sequence, .. }
@@ -205,7 +362,30 @@ impl Packet {
         Ok(before - b.cap())
     }
 
-    pub fn from_bytes(b: &mut octets::Octets) -> Result<Packet, SerializationError> {
+    /// See [`PacketPartialDeser`] for the non-allocating version if you just want to process packets
+    /// and discard them.
+    #[allow(unused)]
+    pub fn from_bytes(data: &[u8]) -> Result<Self, SerializationError> {
+        PacketPartialDeser::from_bytes(data)?.to_packet()
+    }
+}
+
+impl PacketPartialDeser {
+    pub fn sequence(&self) -> u64 {
+        match self {
+            Self::SmallReliable { sequence, .. }
+            | Self::SmallUnreliable { sequence, .. }
+            | Self::UnreliableSlice { sequence, .. }
+            | Self::ReliableSlice { sequence, .. }
+            | Self::Ack { sequence, .. } => *sequence,
+        }
+    }
+
+    pub fn from_bytes(data: &[u8]) -> Result<Self, SerializationError> {
+        // This is the only potential allocation we need.
+        let bytes = Bytes::copy_from_slice(data);
+        let mut b = octets::Octets::with_slice(&bytes);
+
         let packet_type = b.get_u8()?;
         match packet_type {
             0 => {
@@ -213,15 +393,8 @@ impl Packet {
                 let sequence = b.get_varint()?;
                 let channel_id = b.get_u8()?;
                 let messages_len = b.get_u16()?;
-                let mut messages: Vec<(u64, Bytes)> = Vec::with_capacity(64);
-                for _ in 0..messages_len {
-                    let message_id = b.get_varint()?;
-                    let payload = b.get_bytes_with_varint_length()?;
-
-                    messages.push((message_id, payload.to_vec().into()));
-                }
-
-                Ok(Packet::SmallReliable {
+                let messages = SmallReliableIterator::new(messages_len, bytes.slice(b.off()..));
+                Ok(Self::SmallReliable {
                     sequence,
                     channel_id,
                     messages,
@@ -232,13 +405,8 @@ impl Packet {
                 let sequence = b.get_varint()?;
                 let channel_id = b.get_u8()?;
                 let messages_len = b.get_u16()?;
-                let mut messages: Vec<Bytes> = Vec::with_capacity(64);
-                for _ in 0..messages_len {
-                    let payload = b.get_bytes_with_varint_length()?;
-                    messages.push(payload.to_vec().into());
-                }
-
-                Ok(Packet::SmallUnreliable {
+                let messages = SmallUnreliableIterator::new(messages_len, bytes.slice(b.off()..));
+                Ok(Self::SmallUnreliable {
                     sequence,
                     channel_id,
                     messages,
@@ -255,7 +423,13 @@ impl Packet {
                     return Err(SerializationError::InvalidNumSlices);
                 }
 
-                let payload = b.get_bytes_with_varint_length()?;
+                let message_len = b.get_varint()?;
+                let buffer_start = b.off();
+                let buffer_end = buffer_start.saturating_add(message_len as usize);
+                if buffer_end > bytes.len() {
+                    return Err(SerializationError::BufferTooShort);
+                }
+                let payload = bytes.slice(buffer_start..buffer_end);
 
                 if payload.is_empty() {
                     return Err(SerializationError::EmptySlice);
@@ -269,9 +443,9 @@ impl Packet {
                     message_id,
                     slice_index,
                     num_slices,
-                    payload: payload.to_vec().into(),
+                    payload,
                 };
-                Ok(Packet::ReliableSlice {
+                Ok(Self::ReliableSlice {
                     sequence,
                     channel_id,
                     slice,
@@ -288,15 +462,21 @@ impl Packet {
                     return Err(SerializationError::InvalidNumSlices);
                 }
 
-                let payload = b.get_bytes_with_varint_length()?;
+                let message_len = b.get_varint()?;
+                let buffer_start = b.off();
+                let buffer_end = buffer_start.saturating_add(message_len as usize);
+                if buffer_end > bytes.len() {
+                    return Err(SerializationError::BufferTooShort);
+                }
+                let payload = bytes.slice(buffer_start..buffer_end);
 
                 let slice = Slice {
                     message_id,
                     slice_index,
                     num_slices,
-                    payload: payload.to_vec().into(),
+                    payload,
                 };
-                Ok(Packet::UnreliableSlice {
+                Ok(Self::UnreliableSlice {
                     sequence,
                     channel_id,
                     slice,
@@ -344,9 +524,73 @@ impl Packet {
 
                 ack_ranges.reverse();
 
-                Ok(Packet::Ack { sequence, ack_ranges })
+                Ok(Self::Ack { sequence, ack_ranges })
             }
             _ => Err(SerializationError::InvalidPacketType),
+        }
+    }
+
+    /// Fully deserialize to a [`Packet`].
+    pub fn to_packet(self) -> Result<Packet, SerializationError> {
+        match self {
+            Self::SmallReliable {
+                sequence,
+                channel_id,
+                mut messages,
+            } => {
+                messages.reset();
+                let mut accumulated = Vec::with_capacity(messages.len as usize);
+                while let Some((message_id, message)) = messages.next()? {
+                    accumulated.push((message_id, message));
+                }
+                Ok(Packet::SmallReliable {
+                    sequence,
+                    channel_id,
+                    messages: accumulated,
+                })
+            }
+            Self::SmallUnreliable {
+                sequence,
+                channel_id,
+                mut messages,
+            } => {
+                messages.reset();
+                let mut accumulated = Vec::with_capacity(messages.len as usize);
+                while let Some(message) = messages.next()? {
+                    accumulated.push(message);
+                }
+                Ok(Packet::SmallUnreliable {
+                    sequence,
+                    channel_id,
+                    messages: accumulated,
+                })
+            }
+            Self::ReliableSlice {
+                sequence,
+                channel_id,
+                slice,
+            } => Ok(Packet::ReliableSlice {
+                sequence,
+                channel_id,
+                slice,
+            }),
+            Self::UnreliableSlice {
+                sequence,
+                channel_id,
+                slice,
+            } => Ok(Packet::UnreliableSlice {
+                sequence,
+                channel_id,
+                slice,
+            }),
+            Self::Ack { sequence, ack_ranges } => {
+                // ack_ranges.reset();
+                // let mut accumulated = Vec::with_capacity(ack_ranges.len);
+                // while let Some(range) = ack_ranges.next()? {
+                //     accumulated.push(range);
+                // }
+                Ok(Packet::Ack { sequence, ack_ranges })
+            }
         }
     }
 }
@@ -367,8 +611,7 @@ mod tests {
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         packet.to_bytes(&mut b).unwrap();
 
-        let mut b = octets::Octets::with_slice(&buffer);
-        let recv_packet = Packet::from_bytes(&mut b).unwrap();
+        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(packet, recv_packet);
     }
 
@@ -384,8 +627,7 @@ mod tests {
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         packet.to_bytes(&mut b).unwrap();
 
-        let mut b = octets::Octets::with_slice(&buffer);
-        let recv_packet = Packet::from_bytes(&mut b).unwrap();
+        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(packet, recv_packet);
     }
 
@@ -407,8 +649,7 @@ mod tests {
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         packet.to_bytes(&mut b).unwrap();
 
-        let mut b = octets::Octets::with_slice(&buffer);
-        let recv_packet = Packet::from_bytes(&mut b).unwrap();
+        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(packet, recv_packet);
     }
 
@@ -430,8 +671,7 @@ mod tests {
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         packet.to_bytes(&mut b).unwrap();
 
-        let mut b = octets::Octets::with_slice(&buffer);
-        let recv_packet = Packet::from_bytes(&mut b).unwrap();
+        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(packet, recv_packet);
     }
 
@@ -447,8 +687,7 @@ mod tests {
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         packet.to_bytes(&mut b).unwrap();
 
-        let mut b = octets::Octets::with_slice(&buffer);
-        let recv_packet = Packet::from_bytes(&mut b).unwrap();
+        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(packet, recv_packet);
     }
 }
