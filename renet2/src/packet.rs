@@ -317,43 +317,51 @@ impl Packet {
                 // [20010..20020   ,  20035..20040]
                 //  <----10----><-15-><----5------>
                 //
-                // We can represented more compactly each range if we serialize it based
-                // on the start of the previous one, since the difference is usually small
+                // We can represented more compactly each range if we serialize it as a sequence of
+                // offsets starting with the first 'start', since the difference is usually small.
                 // The ranges would become before serializing:
-                // 20040 5 1 15 10
-                //   |   | |  |  |
-                //   |   | |  |  +-> 10: size of 20010..20020
-                //   |   | |  +----> 15: gap between ranges 20010..20020 and 20035..20040
-                //   |   | +--------> 1: remaining number of ranges
-                //   |   +----------> 5: size of 20035..20040
-                //   +----------> 20040:  end of 20035..20040
+                // 20010 10 1 15 5
+                //   |   |  | |  |
+                //   |   |  | |  +---> 5: size of 20035..20040
+                //   |   |  | +-----> 15: gap between ranges 20010..20020 and 20035..20040
+                //   |   |  +--------> 1: remaining number of ranges
+                //   |   +----------> 10: size of 20010..20020
+                //   +-----------> 20040: start of 20010..20020
                 //
-                // We can always reconstruct the ranges using the start of the previous one and the gap.
+                // Since ranges and gaps should always be at least size 1, we store them with -1.
+                //
+                // We can always reconstruct the ranges using the end of the previous one and the gap.
 
-                // Iterate in reverse order
-                let mut it = ack_ranges.iter().rev();
+                // Iterate
+                let mut it = ack_ranges.iter();
 
-                // Extract the last range (first in the iterator)
-                let last = it.next().unwrap();
-                let last_range_size = (last.end - 1) - last.start;
+                // Extract the first range (first in the iterator)
+                let first = it.next().unwrap();
+                let first_range_size = first.end - first.start;
+                if first_range_size == 0 {
+                    return Err(SerializationError::InvalidAckRange);
+                }
 
-                b.put_varint(last.end - 1)?;
-                b.put_varint(last_range_size)?;
+                b.put_varint(first.start)?;
+                b.put_varint(first_range_size - 1)?;
 
                 // Write the number of remaining ranges
                 b.put_varint(it.len() as u64)?;
 
-                let mut previous_range_start = last.start;
+                let mut previous_range_end = first.end;
                 // For each subsequent range:
                 for range in it {
-                    // Calculate the gap between the start of the previous range and the end of the current range
-                    let gap = previous_range_start - range.end - 1;
-                    let range_size = (range.end - 1) - range.start;
+                    // Calculate the gap between the end of the previous range and the start of the current range
+                    let gap = range.start - previous_range_end;
+                    let range_size = range.end - range.start;
+                    if range_size == 0 || gap == 0 {
+                        return Err(SerializationError::InvalidAckRange);
+                    }
 
-                    b.put_varint(gap)?;
-                    b.put_varint(range_size)?;
+                    b.put_varint(gap - 1)?;
+                    b.put_varint(range_size - 1)?;
 
-                    previous_range_start = range.start;
+                    previous_range_end = range.end;
                 }
             }
         }
@@ -484,43 +492,41 @@ impl PacketPartialDeser {
                 // Ack
                 let sequence = b.get_varint()?;
 
-                let first_range_end = b.get_varint()?;
-                let first_range_size = b.get_varint()?;
+                let first_range_start = b.get_varint()?;
+                let first_range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
                 let num_remaining_ranges = b.get_varint()?;
 
-                if first_range_end < first_range_size {
+                if first_range_size > u64::MAX - first_range_start || num_remaining_ranges > 1_000 {
                     return Err(SerializationError::InvalidAckRange);
                 }
 
                 let mut ack_ranges: Vec<Range<u64>> = Vec::with_capacity(32);
 
-                let first_range_start = first_range_end - first_range_size;
-                ack_ranges.push(first_range_start..first_range_end + 1);
+                let first_range_end = first_range_start + first_range_size;
+                ack_ranges.push(first_range_start..first_range_end);
 
-                let mut previous_range_start = first_range_start;
+                let mut previous_range_end = first_range_end;
                 for _ in 0..num_remaining_ranges {
                     // Get the gap between the previous range and the current one
-                    let gap = b.get_varint()?;
+                    let gap = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
 
-                    if previous_range_start < 2 + gap {
+                    if previous_range_end > u64::MAX - gap {
                         return Err(SerializationError::InvalidAckRange);
                     }
 
                     // Get the end of the current range using the start of the previous one and the gap
-                    let range_end = (previous_range_start - gap) - 2;
-                    let range_size = b.get_varint()?;
+                    let range_start = previous_range_end + gap;
+                    let range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
 
-                    if range_end < range_size {
+                    if range_start > u64::MAX - range_size {
                         return Err(SerializationError::InvalidAckRange);
                     }
 
-                    let range_start = range_end - range_size;
-                    ack_ranges.push(range_start..range_end + 1);
+                    let range_end = range_start + range_size;
+                    ack_ranges.push(range_start..range_end);
 
-                    previous_range_start = range_start;
+                    previous_range_end = range_end;
                 }
-
-                ack_ranges.reverse();
 
                 Ok(Self::Ack { sequence, ack_ranges })
             }
@@ -687,5 +693,33 @@ mod tests {
 
         let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(packet, recv_packet);
+    }
+
+    #[test]
+    fn serialize_ack_packet_err_size() {
+        let mut buffer = [0u8; 1300];
+
+        let packet = Packet::Ack {
+            sequence: 0,
+            // empty range not allowed
+            ack_ranges: vec![3..7, 10..20, 22..22],
+        };
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        assert!(packet.to_bytes(&mut b).is_err());
+    }
+
+    #[test]
+    fn serialize_ack_packet_err_gap() {
+        let mut buffer = [0u8; 1300];
+
+        let packet = Packet::Ack {
+            sequence: 0,
+            // gap of 0 not allowed
+            ack_ranges: vec![3..7, 7..20],
+        };
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        assert!(packet.to_bytes(&mut b).is_err());
     }
 }
