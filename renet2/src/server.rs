@@ -309,10 +309,10 @@ impl RenetServer {
     /// Use this to update local client created from [`Self::new_local_client`].
     pub fn process_local_client(&mut self, client_id: ClientId, client: &mut RenetClient) -> Result<(), ClientNotFound> {
         for packet in self.get_packets_to_send(client_id)? {
-            client.process_packet(&packet);
+            client.process_packet(packet);
         }
         for packet in client.get_packets_to_send() {
-            self.process_packet_from(&packet, client_id)?
+            self.process_packet_from(packet, client_id)?
         }
         Ok(())
     }

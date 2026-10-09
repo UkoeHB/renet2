@@ -99,7 +99,7 @@ impl NetcodeClientTransport {
 
         let packets = connection.get_packets_to_send();
         for packet in packets {
-            let (addr, payload) = self.netcode_client.generate_payload_packet(&packet)?;
+            let (addr, payload) = self.netcode_client.generate_payload_packet(packet)?;
             self.socket.send(addr, payload)?;
         }
 

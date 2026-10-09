@@ -476,11 +476,11 @@ impl RenetClient {
         }
 
         for sequence in self.u64_scratch.iter() {
-            if let Some(removed) = self.sent_packets.remove(sequence) {
-                if let PacketSentInfo::ReliableMessages { mut message_ids, .. } = removed.info {
-                    message_ids.clear();
-                    self.message_ids_cache.push(message_ids);
-                }
+            if let Some(removed) = self.sent_packets.remove(sequence)
+                && let PacketSentInfo::ReliableMessages { mut message_ids, .. } = removed.info
+            {
+                message_ids.clear();
+                self.message_ids_cache.push(message_ids);
             }
         }
     }
@@ -501,7 +501,7 @@ impl RenetClient {
         }
 
         self.stats.received_packet(packet.len() as u64);
-        let partial = PacketPartialDeser::from_bytes(packet).map_err(|e| DisconnectReason::PacketDeserialization(e))?;
+        let partial = PacketPartialDeser::from_bytes(packet).map_err(DisconnectReason::PacketDeserialization)?;
 
         self.add_pending_ack(partial.sequence());
 
@@ -513,7 +513,7 @@ impl RenetClient {
                     return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                while let Some((message_id, message)) = messages.next().map_err(|e| DisconnectReason::PacketDeserialization(e))? {
+                while let Some((message_id, message)) = messages.next().map_err(DisconnectReason::PacketDeserialization)? {
                     channel
                         .process_message(message, message_id)
                         .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
@@ -526,7 +526,7 @@ impl RenetClient {
                     return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                while let Some(message) = messages.next().map_err(|e| DisconnectReason::PacketDeserialization(e))? {
+                while let Some(message) = messages.next().map_err(DisconnectReason::PacketDeserialization)? {
                     channel.process_message(message);
                 }
             }
@@ -616,7 +616,7 @@ impl RenetClient {
         }
 
         let sent_at = self.current_time;
-        self.payloads_cache.extend(self.payloads_ser.drain(..));
+        self.payloads_cache.append(&mut self.payloads_ser);
         let mut bytes_sent: u64 = 0;
 
         let mut apply_packet = |packet: &Packet| -> Result<(), DisconnectReason> {

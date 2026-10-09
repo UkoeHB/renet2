@@ -366,7 +366,7 @@ impl Packet {
     /// and discard them.
     #[allow(unused)]
     pub fn from_bytes(data: &[u8]) -> Result<Self, SerializationError> {
-        PacketPartialDeser::from_bytes(data)?.to_packet()
+        PacketPartialDeser::from_bytes(data)?.into_packet()
     }
 }
 
@@ -531,7 +531,7 @@ impl PacketPartialDeser {
     }
 
     /// Fully deserialize to a [`Packet`].
-    pub fn to_packet(self) -> Result<Packet, SerializationError> {
+    pub fn into_packet(self) -> Result<Packet, SerializationError> {
         match self {
             Self::SmallReliable {
                 sequence,
