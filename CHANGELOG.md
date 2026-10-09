@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## WIP
+
+- Optimization: Minimize temp allocations in `renet2::RenetClient` and `renet2::channel` by reusing buffers.
+- Optimization: Refactor packet handling in `renet2::RenetClient` to avoid allocating when consuming packets.
+
+
 ## 0.17.1 - 10/05/26
 
 - Use observers to send best-effort disconnect messages when transport resources are removed. These messages have no delivery guarantees.

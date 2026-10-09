@@ -23,9 +23,9 @@ fn test_remote_connection_reliable_channel() {
 
     let mut count = 0;
     let packets = server.get_packets_to_send(client_id).unwrap();
-    for packet in packets.into_iter() {
+    for packet in packets.iter() {
         assert!(packet.len() < 1300);
-        client.process_packet(&packet);
+        client.process_packet(packet);
     }
 
     assert_eq!(client.disconnect_reason(), None);
@@ -45,9 +45,9 @@ fn test_remote_connection_reliable_channel() {
     }
 
     let packets = server.get_packets_to_send(client_id).unwrap();
-    for packet in packets.into_iter() {
+    for packet in packets.iter() {
         assert!(packet.len() < 1300);
-        client.process_packet(&packet);
+        client.process_packet(packet);
     }
 
     while let Some(received_message) = client.receive_message(DefaultChannel::ReliableOrdered) {

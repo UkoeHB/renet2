@@ -3,7 +3,8 @@ use crate::channel::unreliable::{ReceiveChannelUnreliable, SendChannelUnreliable
 use crate::channel::{ChannelConfig, DefaultChannel, SendType};
 use crate::connection_stats::ConnectionStats;
 use crate::error::DisconnectReason;
-use crate::packet::{Packet, Payload};
+use crate::packet::{Packet, PacketPartialDeser, Payload};
+use crate::zero_reinit_buffer;
 use bytes::Bytes;
 use octets::OctetsMut;
 
@@ -151,6 +152,17 @@ pub struct RenetClient {
     available_bytes_per_tick: u64,
     connection_status: RenetConnectionStatus,
     rtt: f64,
+    // ------ Scratch space -------
+    // Cleared before use
+    u64_scratch: Vec<u64>,
+    // Drained after use
+    payloads_ser: Vec<Payload>,
+    // Payloads are popped and pushed and cleared after pop
+    payloads_cache: Vec<Payload>,
+    // Cleared before reassignment
+    ack_ranges_reuse: Vec<Range<u64>>,
+    // Message id vecs are popped and pushed and cleared before push
+    message_ids_cache: Vec<Vec<u64>>,
 }
 
 impl RenetClient {
@@ -266,6 +278,11 @@ impl RenetClient {
             rtt: 0.0,
             available_bytes_per_tick,
             connection_status: RenetConnectionStatus::Connecting,
+            u64_scratch: Vec::new(),
+            payloads_ser: Vec::new(),
+            payloads_cache: Vec::new(),
+            ack_ranges_reuse: Vec::new(),
+            message_ids_cache: Vec::new(),
         }
     }
 
@@ -446,11 +463,11 @@ impl RenetClient {
         }
 
         // Discard lost packets
-        let mut lost_packets: Vec<u64> = Vec::new();
+        self.u64_scratch.clear();
         for (&sequence, sent_packet) in self.sent_packets.iter() {
             const DISCARD_AFTER: Duration = Duration::from_secs(3);
             if self.current_time - sent_packet.sent_at >= DISCARD_AFTER {
-                lost_packets.push(sequence);
+                self.u64_scratch.push(sequence);
             } else {
                 // If the current packet is not lost, the next ones will not be lost
                 // since all the next packets were sent after this one.
@@ -458,87 +475,90 @@ impl RenetClient {
             }
         }
 
-        for sequence in lost_packets.iter() {
-            self.sent_packets.remove(sequence);
+        for sequence in self.u64_scratch.iter() {
+            if let Some(removed) = self.sent_packets.remove(sequence)
+                && let PacketSentInfo::ReliableMessages { mut message_ids, .. } = removed.info
+            {
+                message_ids.clear();
+                self.message_ids_cache.push(message_ids);
+            }
         }
     }
 
-    /// Process a packet received from the server.
+    /// Process a packet received from the connected client or server.
     /// <p style="background:rgba(77,220,255,0.16);padding:0.5em;">
     /// <strong>Note:</strong> This should only be called by the transport layer.
     /// </p>
     pub fn process_packet(&mut self, packet: &[u8]) {
+        if let Err(reason) = self.process_packet_impl(packet) {
+            self.disconnect_with_reason(reason);
+        }
+    }
+
+    fn process_packet_impl(&mut self, packet: &[u8]) -> Result<(), DisconnectReason> {
         if self.is_disconnected() {
-            return;
+            return Ok(());
         }
 
         self.stats.received_packet(packet.len() as u64);
-        let mut octets = octets::Octets::with_slice(packet);
-        let packet = match Packet::from_bytes(&mut octets) {
-            Err(err) => {
-                self.disconnect_with_reason(DisconnectReason::PacketDeserialization(err));
-                return;
-            }
-            Ok(packet) => packet,
-        };
+        let partial = PacketPartialDeser::from_raw_bytes(packet).map_err(DisconnectReason::PacketDeserialization)?;
 
-        self.add_pending_ack(packet.sequence());
+        self.add_pending_ack(partial.sequence());
 
-        match packet {
-            Packet::SmallReliable { channel_id, messages, .. } => {
+        match partial {
+            PacketPartialDeser::SmallReliable {
+                channel_id, mut messages, ..
+            } => {
                 let Some(ReceiveChannel::Reliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                for (message_id, message) in messages {
-                    if let Err(error) = channel.process_message(message, message_id) {
-                        self.disconnect_with_reason(DisconnectReason::ReceiveChannelError { channel_id, error });
-                        return;
-                    }
+                while let Some((message_id, message)) = messages.next().map_err(DisconnectReason::PacketDeserialization)? {
+                    channel
+                        .process_message(message, message_id)
+                        .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
                 }
             }
-            Packet::SmallUnreliable { channel_id, messages, .. } => {
+            PacketPartialDeser::SmallUnreliable {
+                channel_id, mut messages, ..
+            } => {
                 let Some(ReceiveChannel::Unreliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                for message in messages {
+                while let Some(message) = messages.next().map_err(DisconnectReason::PacketDeserialization)? {
                     channel.process_message(message);
                 }
             }
-            Packet::ReliableSlice { channel_id, slice, .. } => {
+            PacketPartialDeser::ReliableSlice { channel_id, slice, .. } => {
                 let Some(ReceiveChannel::Reliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                if let Err(error) = channel.process_slice(slice) {
-                    self.disconnect_with_reason(DisconnectReason::ReceiveChannelError { channel_id, error });
-                }
+                channel
+                    .process_slice(slice)
+                    .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
             }
-            Packet::UnreliableSlice { channel_id, slice, .. } => {
+            PacketPartialDeser::UnreliableSlice { channel_id, slice, .. } => {
                 let Some(ReceiveChannel::Unreliable(channel)) = self.receive_channels.get_mut(channel_id as usize) else {
-                    self.disconnect_with_reason(DisconnectReason::ReceivedInvalidChannelId(channel_id));
-                    return;
+                    return Err(DisconnectReason::ReceivedInvalidChannelId(channel_id));
                 };
 
-                if let Err(error) = channel.process_slice(slice, self.current_time) {
-                    self.disconnect_with_reason(DisconnectReason::ReceiveChannelError { channel_id, error });
-                }
+                channel
+                    .process_slice(slice, self.current_time)
+                    .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
             }
-            Packet::Ack { ack_ranges, .. } => {
+            PacketPartialDeser::Ack { ack_ranges, .. } => {
                 // Create list with just new acks
                 // This prevents DoS from huge ack ranges
-                let mut new_acks: Vec<u64> = Vec::new();
+                self.u64_scratch.clear();
                 for range in ack_ranges {
                     for (&sequence, _) in self.sent_packets.range(range) {
-                        new_acks.push(sequence)
+                        self.u64_scratch.push(sequence)
                     }
                 }
 
-                for packet_sequence in new_acks {
+                for packet_sequence in self.u64_scratch.iter().copied() {
                     let sent_packet = self.sent_packets.remove(&packet_sequence).unwrap();
                     self.stats.acked_packet(sent_packet.sent_at, self.current_time);
 
@@ -551,13 +571,18 @@ impl RenetClient {
                     }
 
                     match sent_packet.info {
-                        PacketSentInfo::ReliableMessages { channel_id, message_ids } => {
+                        PacketSentInfo::ReliableMessages {
+                            channel_id,
+                            mut message_ids,
+                        } => {
                             let SendChannel::Reliable(channel) = self.send_channels.get_mut(channel_id as usize).unwrap() else {
                                 panic!("Acked packet has invalid channel {channel_id}");
                             };
-                            for message_id in message_ids {
-                                channel.process_message_ack(message_id);
+                            for message_id in message_ids.iter() {
+                                channel.process_message_ack(*message_id);
                             }
+                            message_ids.clear();
+                            self.message_ids_cache.push(message_ids);
                         }
                         PacketSentInfo::ReliableSliceMessage {
                             channel_id,
@@ -570,67 +595,46 @@ impl RenetClient {
                             channel.process_slice_message_ack(message_id, slice_index);
                         }
                         PacketSentInfo::Ack { largest_acked_packet } => {
-                            self.acked_largest(largest_acked_packet);
+                            Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
                         }
                         PacketSentInfo::None => {}
                     }
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Returns a list of packets to be sent to the server.
     /// <p style="background:rgba(77,220,255,0.16);padding:0.5em;">
     /// <strong>Note:</strong> This should only be called by the transport layer.
     /// </p>
-    pub fn get_packets_to_send(&mut self) -> Vec<Payload> {
-        let mut packets: Vec<Packet> = vec![];
+    pub fn get_packets_to_send(&mut self) -> &[Payload] {
         if self.is_disconnected() {
-            return vec![];
-        }
-
-        let mut available_bytes = self.available_bytes_per_tick;
-        for order in self.channel_send_order.iter() {
-            match order {
-                ChannelOrder::Reliable(channel_id) => {
-                    let SendChannel::Reliable(channel) = self.send_channels.get_mut(*channel_id as usize).unwrap() else {
-                        panic!("Packet to send has invalid channel {channel_id}");
-                    };
-                    packets.append(&mut channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes, self.current_time));
-                }
-                ChannelOrder::Unreliable(channel_id) => {
-                    let SendChannel::Unreliable(channel) = self.send_channels.get_mut(*channel_id as usize).unwrap() else {
-                        panic!("Packet to send has invalid channel {channel_id}");
-                    };
-                    packets.append(&mut channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes));
-                }
-            }
-        }
-
-        if !self.pending_acks.is_empty() {
-            let ack_packet = Packet::Ack {
-                sequence: self.packet_sequence,
-                ack_ranges: self.pending_acks.clone(),
-            };
-            self.packet_sequence += 1;
-            packets.push(ack_packet);
+            return &[];
         }
 
         let sent_at = self.current_time;
-        for packet in packets.iter() {
+        self.payloads_cache.append(&mut self.payloads_ser);
+        let mut bytes_sent: u64 = 0;
+
+        let mut apply_packet = |packet: &Packet| -> Result<(), DisconnectReason> {
             match packet {
                 Packet::SmallReliable {
                     sequence,
                     channel_id,
                     messages,
                 } => {
+                    let mut message_ids = self.message_ids_cache.pop().unwrap_or_default();
+                    message_ids.extend(messages.iter().map(|(id, _)| *id));
                     self.sent_packets.insert(
                         *sequence,
                         PacketSent {
                             sent_at,
                             info: PacketSentInfo::ReliableMessages {
                                 channel_id: *channel_id,
-                                message_ids: messages.iter().map(|(id, _)| *id).collect(),
+                                message_ids,
                             },
                         },
                     );
@@ -682,28 +686,71 @@ impl RenetClient {
                     );
                 }
             }
-        }
 
-        let mut buffer = [0u8; 1400];
-        let mut serialized_packets = Vec::with_capacity(packets.len());
-        let mut bytes_sent: u64 = 0;
-        for packet in packets {
-            let mut oct = OctetsMut::with_slice(&mut buffer);
-            let len = match packet.to_bytes(&mut oct) {
-                Err(err) => {
-                    self.disconnect_with_reason(DisconnectReason::PacketSerialization(err));
-                    return vec![];
-                }
-                Ok(len) => len,
-            };
+            let mut buffer = self.payloads_cache.pop().unwrap_or_default();
+            const PACKET_SIZE: usize = 1400;
+            zero_reinit_buffer(&mut buffer, PACKET_SIZE);
+            let mut oct = OctetsMut::with_slice(buffer.as_mut_slice());
+            let len = packet.to_bytes(&mut oct).map_err(DisconnectReason::PacketSerialization)?;
 
             bytes_sent += len as u64;
-            serialized_packets.push(buffer[..len].to_vec());
+            buffer.resize(len, 0); // should always be <= existing size
+            self.payloads_ser.push(buffer);
+
+            Ok(())
+        };
+
+        let mut available_bytes = self.available_bytes_per_tick;
+        for order in self.channel_send_order.iter() {
+            match order {
+                ChannelOrder::Reliable(channel_id) => {
+                    let SendChannel::Reliable(channel) = self.send_channels.get_mut(*channel_id as usize).unwrap() else {
+                        panic!("Packet to send has invalid channel {channel_id}");
+                    };
+                    for packet in channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes, self.current_time) {
+                        if let Err(err) = apply_packet(packet) {
+                            self.disconnect_with_reason(err);
+                            return &[];
+                        }
+                    }
+                }
+                ChannelOrder::Unreliable(channel_id) => {
+                    let SendChannel::Unreliable(channel) = self.send_channels.get_mut(*channel_id as usize).unwrap() else {
+                        panic!("Packet to send has invalid channel {channel_id}");
+                    };
+                    for packet in channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes) {
+                        if let Err(err) = apply_packet(packet) {
+                            self.disconnect_with_reason(err);
+                            return &[];
+                        }
+                    }
+                }
+            }
         }
 
-        self.stats.sent_packets(serialized_packets.len() as u64, bytes_sent);
+        if !self.pending_acks.is_empty() {
+            let mut ack_ranges = std::mem::take(&mut self.ack_ranges_reuse);
+            ack_ranges.extend(self.pending_acks.iter().cloned());
+            let ack_packet = Packet::Ack {
+                sequence: self.packet_sequence,
+                ack_ranges,
+            };
+            self.packet_sequence += 1;
+            if let Err(err) = apply_packet(&ack_packet) {
+                // disconnecting, don't care about ack_ranges reuse
+                self.disconnect_with_reason(err);
+                return &[];
+            }
+            let Packet::Ack { mut ack_ranges, .. } = ack_packet else {
+                unreachable!();
+            };
+            ack_ranges.clear();
+            self.ack_ranges_reuse = ack_ranges;
+        }
 
-        serialized_packets
+        self.stats.sent_packets(self.payloads_ser.len() as u64, bytes_sent);
+
+        &self.payloads_ser
     }
 
     fn add_pending_ack(&mut self, sequence: u64) {
@@ -754,9 +801,9 @@ impl RenetClient {
         }
     }
 
-    fn acked_largest(&mut self, largest_ack: u64) {
-        while !self.pending_acks.is_empty() {
-            let range: &mut Range<u64> = &mut self.pending_acks[0];
+    fn acked_largest(pending_acks: &mut Vec<Range<u64>>, largest_ack: u64) {
+        while !pending_acks.is_empty() {
+            let range: &mut Range<u64> = &mut pending_acks[0];
 
             // Largest ack is below the range, stop checking
             if largest_ack < range.start {
@@ -765,7 +812,7 @@ impl RenetClient {
 
             // Largest ack is above the range, remove it
             if range.end <= largest_ack {
-                self.pending_acks.remove(0);
+                pending_acks.remove(0);
                 continue;
             }
 
@@ -773,7 +820,7 @@ impl RenetClient {
             // Update start
             range.start = largest_ack + 1;
             if range.is_empty() {
-                self.pending_acks.remove(0);
+                pending_acks.remove(0);
             }
 
             return;
@@ -828,20 +875,20 @@ mod tests {
 
         assert_eq!(connection.pending_acks, vec![0..10]);
 
-        connection.acked_largest(0);
+        RenetClient::acked_largest(&mut connection.pending_acks, 0);
         assert_eq!(connection.pending_acks, vec![1..10]);
 
-        connection.acked_largest(3);
+        RenetClient::acked_largest(&mut connection.pending_acks, 3);
         assert_eq!(connection.pending_acks, vec![4..10]);
 
         connection.add_pending_ack(0);
         assert_eq!(connection.pending_acks, vec![0..1, 4..10]);
-        connection.acked_largest(5);
+        RenetClient::acked_largest(&mut connection.pending_acks, 5);
         assert_eq!(connection.pending_acks, vec![6..10]);
 
         connection.add_pending_ack(0);
         assert_eq!(connection.pending_acks, vec![0..1, 6..10]);
-        connection.acked_largest(10);
+        RenetClient::acked_largest(&mut connection.pending_acks, 10);
         assert_eq!(connection.pending_acks, vec![]);
     }
 

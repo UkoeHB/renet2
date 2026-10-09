@@ -219,6 +219,9 @@ impl RenetServer {
     }
 
     /// Return ids for all connected clients
+    // TODO: Is it more efficient to use Hashmap<ClientId, Arc<bool>> to track client list w/ connected flag?
+    // Then use `connected_client_scope(FnMut(impl Iterator<ClientId>, &mut Self))`? If caller adds/removes
+    // clients, need to sync with removed hashmap after closure ends. Need to perf test this.
     pub fn clients_id(&self) -> Vec<ClientId> {
         self.clients_id_iter().collect()
     }
@@ -258,7 +261,7 @@ impl RenetServer {
     /// <p style="background:rgba(77,220,255,0.16);padding:0.5em;">
     /// <strong>Note:</strong> This should only be called by the transport layer.
     /// </p>
-    pub fn get_packets_to_send(&mut self, client_id: ClientId) -> Result<Vec<Payload>, ClientNotFound> {
+    pub fn get_packets_to_send(&mut self, client_id: ClientId) -> Result<&[Payload], ClientNotFound> {
         match self.connections.get_mut(&client_id) {
             Some(connection) => Ok(connection.get_packets_to_send()),
             None => Err(ClientNotFound),
@@ -306,10 +309,10 @@ impl RenetServer {
     /// Use this to update local client created from [`Self::new_local_client`].
     pub fn process_local_client(&mut self, client_id: ClientId, client: &mut RenetClient) -> Result<(), ClientNotFound> {
         for packet in self.get_packets_to_send(client_id)? {
-            client.process_packet(&packet);
+            client.process_packet(packet);
         }
         for packet in client.get_packets_to_send() {
-            self.process_packet_from(&packet, client_id)?
+            self.process_packet_from(packet, client_id)?
         }
         Ok(())
     }

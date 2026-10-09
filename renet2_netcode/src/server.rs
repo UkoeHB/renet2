@@ -3,7 +3,7 @@ use std::{io, net::SocketAddr, time::Duration};
 use renetcode2::{NETCODE_MAX_PACKET_BYTES, NETCODE_USER_DATA_BYTES, NetcodeServer, ServerConfig, ServerResult};
 use renetcode2::{ServerAuthentication, ServerSocketConfig};
 
-use renet2::{ClientId, Payload, RenetServer};
+use renet2::{ClientId, RenetServer};
 
 use super::{NetcodeTransportError, ServerSocket};
 
@@ -204,6 +204,8 @@ impl NetcodeServerTransport {
     }
 
     /// Sends packets to connected clients.
+    ///
+    /// Disconnects clients if their address connections are broken.
     pub fn send_packets(&mut self, server: &mut RenetServer) {
         //TODO: it isn't necessary to allocate client ids here, just use one big vec of packets for all clients
         // - also, the vec can be cached in RenetServer for reuse, and likewise with the internal pieces of packets
@@ -212,10 +214,35 @@ impl NetcodeServerTransport {
                 continue;
             };
 
+            let mut client_disconnected = false;
             for packet in packets {
-                if !send_packet_to_client(&mut self.sockets, &mut self.netcode_server, server, &packet, client_id) {
-                    break;
+                let (send_result, socket_id, addr) = match self.netcode_server.generate_payload_packet(client_id, packet) {
+                    Ok((socket_id, addr, payload)) => (self.sockets[socket_id].send(addr, payload), socket_id, addr),
+                    Err(e) => {
+                        log::error!("Failed to encrypt payload packet for client {client_id}: {e}");
+                        break;
+                    }
+                };
+
+                match send_result {
+                    Ok(()) => (),
+                    Err(NetcodeTransportError::IO(ref e)) if e.kind() == io::ErrorKind::ConnectionAborted => {
+                        client_disconnected = true;
+                        break;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send packet to client {client_id} ({socket_id}/{addr}): {e}");
+                        break;
+                    }
                 }
+            }
+
+            // Outside the loop since `packets` has `server` lifetime.
+            if client_disconnected {
+                // Manually disconnect the client if the client's address is disconnected.
+                server.remove_connection(client_id);
+                // Ignore the server result since this client is not connected.
+                let _ = self.netcode_server.disconnect(client_id);
             }
         }
     }
@@ -228,41 +255,6 @@ impl NetcodeServerTransport {
     /// Returns an iterator over the ids of clients currently managed by this transport.
     pub fn clients_id_iter(&self) -> impl Iterator<Item = ClientId> + '_ {
         self.netcode_server.clients_id_iter()
-    }
-}
-
-/// Sends a packet to a client.
-///
-/// Disconnects the client if its address connection is broken.
-fn send_packet_to_client(
-    sockets: &mut [Box<dyn ServerSocket>],
-    netcode_server: &mut NetcodeServer,
-    reliable_server: &mut RenetServer,
-    packet: &Payload,
-    client_id: ClientId,
-) -> bool {
-    let (send_result, socket_id, addr) = match netcode_server.generate_payload_packet(client_id, packet) {
-        Ok((socket_id, addr, payload)) => (sockets[socket_id].send(addr, payload), socket_id, addr),
-        Err(e) => {
-            log::error!("Failed to encrypt payload packet for client {client_id}: {e}");
-            return false;
-        }
-    };
-
-    match send_result {
-        Ok(()) => true,
-        Err(NetcodeTransportError::IO(ref e)) if e.kind() == io::ErrorKind::ConnectionAborted => {
-            // Manually disconnect the client if the client's address is disconnected.
-            reliable_server.remove_connection(client_id);
-            // Ignore the server result since this client is not connected.
-            let _ = netcode_server.disconnect(client_id);
-
-            false
-        }
-        Err(e) => {
-            log::error!("Failed to send packet to client {client_id} ({socket_id}/{addr}): {e}");
-            false
-        }
     }
 }
 

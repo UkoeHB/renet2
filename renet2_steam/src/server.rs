@@ -179,7 +179,7 @@ impl SteamServerTransport {
 
             // TODO: while this works fine we should probably use the send_messages function from the listen_socket
             for packet in packets {
-                if let Err(e) = connection.send_message(&packet, SendFlags::UNRELIABLE) {
+                if let Err(e) = connection.send_message(packet, SendFlags::UNRELIABLE) {
                     log::error!("Failed to send packet to client {client_id}: {e}");
                     continue 'connections;
                 }
