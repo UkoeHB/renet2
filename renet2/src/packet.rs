@@ -231,6 +231,7 @@ pub enum SerializationError {
     EmptySlice,
     InvalidAckRange,
     InvalidPacketType,
+    InvalidSequence,
 }
 
 impl std::error::Error for SerializationError {}
@@ -246,6 +247,7 @@ impl fmt::Display for SerializationError {
             InvalidPacketType => write!(fmt, "invalid packet type"),
             SliceSizeAboveLimit => write!(fmt, "invalid slice size, it's above the limit of {} bytes", SLICE_SIZE),
             EmptySlice => write!(fmt, "invalid slice, slices cannot be empty"),
+            InvalidSequence => write!(fmt, "invalid sequence"),
         }
     }
 }
@@ -399,6 +401,7 @@ impl Packet {
 }
 
 impl PacketPartialDeser {
+    /// Will be `< u64::MAX`.
     pub fn sequence(&self) -> u64 {
         match self {
             Self::SmallReliable { sequence, .. }
@@ -421,7 +424,7 @@ impl PacketPartialDeser {
         match packet_type {
             0 => {
                 // SmallReliable
-                let sequence = b.get_varint()?;
+                let sequence = Self::deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let messages_len = b.get_u16()?;
                 let messages = SmallReliableIterator::new(messages_len, bytes.slice(b.off()..));
@@ -433,7 +436,7 @@ impl PacketPartialDeser {
             }
             1 => {
                 // SmallUnreliable
-                let sequence = b.get_varint()?;
+                let sequence = Self::deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let messages_len = b.get_u16()?;
                 let messages = SmallUnreliableIterator::new(messages_len, bytes.slice(b.off()..));
@@ -445,7 +448,7 @@ impl PacketPartialDeser {
             }
             2 => {
                 // ReliableSlice
-                let sequence = b.get_varint()?;
+                let sequence = Self::deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let message_id = b.get_varint()?;
                 let slice_index = b.get_varint()? as usize;
@@ -482,7 +485,7 @@ impl PacketPartialDeser {
             }
             3 => {
                 // UnreliableSlice
-                let sequence = b.get_varint()?;
+                let sequence = Self::deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let message_id = b.get_varint()?;
                 let slice_index = b.get_varint()? as usize;
@@ -511,7 +514,7 @@ impl PacketPartialDeser {
             }
             4 => {
                 // Ack
-                let sequence = b.get_varint()?;
+                let sequence = Self::deserialize_sequence(&mut b)?;
 
                 let first_range_start = b.get_varint()?;
                 let first_range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
@@ -598,6 +601,14 @@ impl PacketPartialDeser {
                 })
             }
         }
+    }
+
+    fn deserialize_sequence(b: &mut octets::Octets) -> Result<u64, SerializationError> {
+        let sequence = b.get_varint()?;
+        if sequence == u64::MAX {
+            return Err(SerializationError::InvalidSequence);
+        }
+        Ok(sequence)
     }
 }
 

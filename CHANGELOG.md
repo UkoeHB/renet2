@@ -5,6 +5,7 @@
 - Optimization: Minimize temp allocations in `renet2::RenetClient` and `renet2::channel` by reusing buffers.
 - Optimization: Refactor packet handling in `renet2::RenetClient` to avoid allocating when consuming packets.
 - Optimization: Rework ack packet serialization for better deserialization handling. **Breaking change to packet serialization**
+- Fix: check packet sequences are valid on deserialization.
 
 
 ## 0.17.1 - 10/05/26

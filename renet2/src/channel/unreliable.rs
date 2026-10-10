@@ -240,8 +240,8 @@ impl ReceiveChannelUnreliable {
             if current_time - *last_received >= DISCARD_AFTER {
                 lost_messages.push(message_id);
             } else {
-                // If the current message is not discard, the next ones will not be discarded
-                // since all the next message were sent after this one.
+                // If the current message is not discarded, the next ones will not be discarded
+                // since all the next messages were sent after this one.
                 break;
             }
         }

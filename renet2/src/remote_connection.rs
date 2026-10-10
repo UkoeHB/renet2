@@ -16,7 +16,7 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
     /// The number of bytes that is available per update tick to send messages.
-    /// Default: 60_000, at 60hz this is becomes 28.8 Mbps
+    /// Default: 60_000, at 60hz this is 28.8 Mbps
     pub available_bytes_per_tick: u64,
     /// The channels that the server sends to the client.
     /// The order of the channels in this Vec determines which channel has priority when generating packets.
@@ -184,7 +184,7 @@ impl RenetClient {
         )
     }
 
-    // When creating a client from the server, the server_channels_config are used as send channels,
+    // When creating a client from within the server, the server_channels_config are used as send channels,
     // and the client_channels_config is used as recv channels.
     pub(crate) fn new_from_server(mut config: ConnectionConfig, has_reliable_socket: bool) -> Self {
         if has_reliable_socket {
@@ -795,7 +795,7 @@ impl RenetClient {
         // Add new range with only this sequence at the end
         self.pending_acks.push(sequence..sequence + 1);
 
-        // Limit to 64 pending ranges
+        // Limit to 64 pending ranges (note: this keeps ack packets under 1 kB and limits map iter cost)
         if self.pending_acks.len() > 64 {
             self.pending_acks.remove(0);
         }
