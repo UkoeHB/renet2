@@ -593,7 +593,7 @@ impl RenetClient {
             Ok(()) => &self.payloads_ser,
             Err(err) => {
                 self.disconnect_with_reason(err);
-                return &[];
+                &[]
             }
         }
     }

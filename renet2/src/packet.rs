@@ -61,7 +61,7 @@ impl PacketAcks {
     /// Consider these ranges:
     /// [20010..20020   ,  20035..20040]
     ///  <----10----><-15-><----5------>
-
+    ///
     /// We can represented more compactly each range if we serialize it as a sequence of
     /// offsets starting with the first 'start', since the difference is usually small.
     /// The ranges would become before serializing:
@@ -71,18 +71,18 @@ impl PacketAcks {
     ///   |   |  +-------> 15: gap between ranges 20010..20020 and 20035..20040
     ///   |   +----------> 10: size of 20010..20020
     ///   +-----------> 20040: start of 20010..20020
-
+    ///
     /// Ranges are prefixed with the number of ranges that are recorded. This is *not* -1
     /// because we can append acks to any packet type and need a way to detect if there are
     /// acks recorded.
-
+    ///
     /// Since ranges and gaps should always be at least size 1, we store them with -1.
-
+    ///
     /// We can always reconstruct the ranges using the end of the previous one and the gap.
     ///
     /// Returns the number of bytes written.
     pub fn to_bytes(&self, b: &mut octets::OctetsMut) -> Result<usize, SerializationError> {
-        if self.ack_ranges.len() == 0 {
+        if self.ack_ranges.is_empty() {
             return Err(SerializationError::InvalidAckRange);
         }
         let before = b.cap();
@@ -160,7 +160,7 @@ impl SmallReliableIterator {
 
     pub fn into_acks_iter(mut self) -> Result<Option<AckRangesIterator>, SerializationError> {
         // Exhaust remaining messages.
-        while let Some(_) = self.next()? {}
+        while self.next()?.is_some() {}
         AckRangesIterator::try_deserialize(self.bytes.slice(self.bytes_pos..))
     }
 
@@ -206,7 +206,7 @@ impl SmallUnreliableIterator {
 
     pub fn into_acks_iter(mut self) -> Result<Option<AckRangesIterator>, SerializationError> {
         // Exhaust remaining messages.
-        while let Some(_) = self.next()? {}
+        while self.next()?.is_some() {}
         AckRangesIterator::try_deserialize(self.bytes.slice(self.bytes_pos..))
     }
 
@@ -241,7 +241,7 @@ impl AckRangesIterator {
     pub fn try_deserialize(bytes: Bytes) -> Result<Option<Self>, SerializationError> {
         // If at least 1 byte, we expect it to be zero if no ranges were written, which means
         // `num_ranges` will deserialize to zero and we can exit early.
-        if bytes.len() == 0 {
+        if bytes.is_empty() {
             return Ok(None);
         }
         let mut b = octets::Octets::with_slice(&bytes);
@@ -295,7 +295,7 @@ impl AckRangesIterator {
         self.prev_end = 0;
     }
 
-    pub fn into_acks(&mut self, acks: &mut PacketAcks) -> Result<(), SerializationError> {
+    pub fn make_acks(&mut self, acks: &mut PacketAcks) -> Result<(), SerializationError> {
         self.reset();
         acks.ack_ranges.clear();
         acks.ack_ranges.reserve(self.len as usize);
@@ -696,7 +696,7 @@ impl PacketPartialDeser {
             }
             Self::Ack { sequence, mut ack_ranges } => {
                 let mut acks = PacketAcks::default();
-                ack_ranges.into_acks(&mut acks)?;
+                ack_ranges.make_acks(&mut acks)?;
                 Ok((Packet::Ack { sequence }, Some(acks)))
             }
         }
@@ -714,7 +714,7 @@ impl PacketPartialDeser {
     fn get_maybe_acks(acks: Option<AckRangesIterator>) -> Result<Option<PacketAcks>, SerializationError> {
         let Some(mut it) = acks else { return Ok(None) };
         let mut packet = PacketAcks::default();
-        it.into_acks(&mut packet)?;
+        it.make_acks(&mut packet)?;
         Ok(Some(packet))
     }
 }
