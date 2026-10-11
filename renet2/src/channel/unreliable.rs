@@ -415,8 +415,9 @@ mod tests {
         let mut buffer = [0u8; 1400];
         for packet in packets {
             let mut oct = OctetsMut::with_slice(&mut buffer);
-            let len = packet.to_bytes(&mut oct).unwrap();
+            let (len, acks_written) = packet.to_bytes(&mut oct, None).unwrap();
             assert!(len < 1300);
+            assert!(!acks_written);
         }
     }
 }

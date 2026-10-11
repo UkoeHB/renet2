@@ -1,6 +1,8 @@
 use bytes::Bytes;
 use std::{fmt, ops::Range};
 
+use crate::remote_connection::MAX_ACK_RANGES;
+
 pub type Payload = Vec<u8>;
 
 // Sliced messages are split into SLICE_SIZE bytes chunks
@@ -14,6 +16,8 @@ pub struct Slice {
     pub payload: Bytes,
 }
 
+/// All packets *may* be appended with a serialized [`AckRanges`].
+/// If there are no ack ranges, nothing extra will be serialized.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Packet {
     // Small messages in a reliable channel are aggregated and sent in this packet
@@ -40,12 +44,83 @@ pub enum Packet {
         channel_id: u8,
         slice: Slice,
     },
-    // Contains the packets that were acked
-    // Acks are saved in multiple ranges, all values in the ranges are considered acked.
+    // Contains only the packets that were acked
+    // Always should have a [`PacketAcks`] appended on serialization.
     Ack {
         sequence: u64,
-        ack_ranges: Vec<Range<u64>>,
     },
+}
+
+/// Acks are saved in multiple ranges, all values in the ranges are considered acked.
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct PacketAcks {
+    pub ack_ranges: Vec<Range<u64>>,
+}
+
+impl PacketAcks {
+    /// Consider these ranges:
+    /// [20010..20020   ,  20035..20040]
+    ///  <----10----><-15-><----5------>
+
+    /// We can represented more compactly each range if we serialize it as a sequence of
+    /// offsets starting with the first 'start', since the difference is usually small.
+    /// The ranges would become before serializing:
+    /// 20010 10 15 5
+    ///   |   |  |  |
+    ///   |   |  |  +-----> 5: size of 20035..20040
+    ///   |   |  +-------> 15: gap between ranges 20010..20020 and 20035..20040
+    ///   |   +----------> 10: size of 20010..20020
+    ///   +-----------> 20040: start of 20010..20020
+
+    /// Ranges are prefixed with the number of ranges that are recorded. This is *not* -1
+    /// because we can append acks to any packet type and need a way to detect if there are
+    /// acks recorded.
+
+    /// Since ranges and gaps should always be at least size 1, we store them with -1.
+
+    /// We can always reconstruct the ranges using the end of the previous one and the gap.
+    ///
+    /// Returns the number of bytes written.
+    pub fn to_bytes(&self, b: &mut octets::OctetsMut) -> Result<usize, SerializationError> {
+        if self.ack_ranges.len() == 0 {
+            return Err(SerializationError::InvalidAckRange);
+        }
+        let before = b.cap();
+
+        // Iterate
+        let mut it = self.ack_ranges.iter();
+
+        // Write the total number of ranges
+        b.put_varint(it.len() as u64)?;
+
+        // Extract the first range (first in the iterator)
+        let first = it.next().unwrap();
+        let first_range_size = first.end - first.start;
+        if first_range_size == 0 {
+            return Err(SerializationError::InvalidAckRange);
+        }
+
+        b.put_varint(first.start)?;
+        b.put_varint(first_range_size - 1)?;
+
+        let mut previous_range_end = first.end;
+        // For each subsequent range:
+        for range in it {
+            // Calculate the gap between the end of the previous range and the start of the current range
+            let gap = range.start - previous_range_end;
+            let range_size = range.end - range.start;
+            if range_size == 0 || gap == 0 {
+                return Err(SerializationError::InvalidAckRange);
+            }
+
+            b.put_varint(gap - 1)?;
+            b.put_varint(range_size - 1)?;
+
+            previous_range_end = range.end;
+        }
+
+        Ok(before - b.cap())
+    }
 }
 
 #[derive(Debug)]
@@ -81,6 +156,12 @@ impl SmallReliableIterator {
         let payload = self.bytes.slice(self.bytes_pos..(self.bytes_pos + message_len));
         self.bytes_pos += message_len;
         Ok(Some((message_id, payload)))
+    }
+
+    pub fn into_acks_iter(mut self) -> Result<Option<AckRangesIterator>, SerializationError> {
+        // Exhaust remaining messages.
+        while let Some(_) = self.next()? {}
+        AckRangesIterator::try_deserialize(self.bytes.slice(self.bytes_pos..))
     }
 
     pub fn reset(&mut self) {
@@ -123,6 +204,12 @@ impl SmallUnreliableIterator {
         Ok(Some(payload))
     }
 
+    pub fn into_acks_iter(mut self) -> Result<Option<AckRangesIterator>, SerializationError> {
+        // Exhaust remaining messages.
+        while let Some(_) = self.next()? {}
+        AckRangesIterator::try_deserialize(self.bytes.slice(self.bytes_pos..))
+    }
+
     pub fn reset(&mut self) {
         self.current_idx = 0;
         self.bytes_pos = 0;
@@ -131,8 +218,8 @@ impl SmallUnreliableIterator {
 
 #[derive(Debug)]
 pub struct AckRangesIterator {
-    first_range: Range<u64>,
     len: u64,
+    first_range: Range<u64>,
     current_idx: u64,
     bytes: Bytes,
     bytes_pos: usize,
@@ -140,15 +227,41 @@ pub struct AckRangesIterator {
 }
 
 impl AckRangesIterator {
-    pub fn new(first_range: Range<u64>, len_extra: u64, bytes: Bytes) -> Self {
+    pub fn new(len: u64, first_range: Range<u64>, bytes: Bytes) -> Self {
         Self {
+            len,
             first_range,
-            len: len_extra + 1,
             current_idx: 0,
             bytes,
             bytes_pos: 0,
             prev_end: 0,
         }
+    }
+
+    pub fn try_deserialize(bytes: Bytes) -> Result<Option<Self>, SerializationError> {
+        // If at least 1 byte, we expect it to be zero if no ranges were written, which means
+        // `num_ranges` will deserialize to zero and we can exit early.
+        if bytes.len() == 0 {
+            return Ok(None);
+        }
+        let mut b = octets::Octets::with_slice(&bytes);
+        let num_ranges = b.get_varint()?;
+        if num_ranges == 0 {
+            return Ok(None);
+        } else if num_ranges > MAX_ACK_RANGES {
+            return Err(SerializationError::InvalidAckRange);
+        }
+        let first_range_start = b.get_varint()?;
+        let first_range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
+        let first_range_end = first_range_start
+            .checked_add(first_range_size)
+            .ok_or(SerializationError::InvalidAckRange)?;
+
+        Ok(Some(Self::new(
+            num_ranges,
+            first_range_start..first_range_end,
+            bytes.slice(b.off()..),
+        )))
     }
 
     pub fn next(&mut self) -> Result<Option<Range<u64>>, SerializationError> {
@@ -166,19 +279,10 @@ impl AckRangesIterator {
         let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
         let gap = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
 
-        if self.prev_end > u64::MAX - gap {
-            return Err(SerializationError::InvalidAckRange);
-        }
-
         // Get the end of the current range using the start of the previous one and the gap
-        let range_start = self.prev_end + gap;
+        let range_start = self.prev_end.checked_add(gap).ok_or(SerializationError::InvalidAckRange)?;
         let range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
-
-        if range_start > u64::MAX - range_size {
-            return Err(SerializationError::InvalidAckRange);
-        }
-
-        let range_end = range_start + range_size;
+        let range_end = range_start.checked_add(range_size).ok_or(SerializationError::InvalidAckRange)?;
         self.prev_end = range_end;
         self.bytes_pos += b.off();
 
@@ -190,6 +294,16 @@ impl AckRangesIterator {
         self.bytes_pos = 0;
         self.prev_end = 0;
     }
+
+    pub fn into_acks(&mut self, acks: &mut PacketAcks) -> Result<(), SerializationError> {
+        self.reset();
+        acks.ack_ranges.clear();
+        acks.ack_ranges.reserve(self.len as usize);
+        while let Some(range) = self.next()? {
+            acks.ack_ranges.push(range);
+        }
+        Ok(())
+    }
 }
 
 /// A partially deserialized packet.
@@ -200,22 +314,26 @@ pub enum PacketPartialDeser {
     SmallReliable {
         sequence: u64,
         channel_id: u8,
+        // Can obtain `Option<AckRangesIterator>` after iterating messages.
         messages: SmallReliableIterator,
     },
     SmallUnreliable {
         sequence: u64,
         channel_id: u8,
+        // Can obtain `Option<AckRangesIterator>` after iterating messages.
         messages: SmallUnreliableIterator,
     },
     UnreliableSlice {
         sequence: u64,
         channel_id: u8,
         slice: Slice,
+        ack_ranges: Option<AckRangesIterator>,
     },
     ReliableSlice {
         sequence: u64,
         channel_id: u8,
         slice: Slice,
+        ack_ranges: Option<AckRangesIterator>,
     },
     Ack {
         sequence: u64,
@@ -270,9 +388,12 @@ impl Packet {
         }
     }
 
-    /// Returns number of bytes written to `b`.
-    pub fn to_bytes(&self, b: &mut octets::OctetsMut) -> Result<usize, SerializationError> {
+    /// Returns number of bytes written to `b` and a flag indicating if acks were written.
+    ///
+    /// `acks` will be appended if it will fit with the message in [`SLICE_SIZE`].
+    pub fn to_bytes(&self, b: &mut octets::OctetsMut, acks: Option<&[u8]>) -> Result<(usize, bool), SerializationError> {
         let before = b.cap();
+        let acks_written;
 
         match self {
             Packet::SmallReliable {
@@ -289,6 +410,7 @@ impl Packet {
                     b.put_varint(message.len() as u64)?;
                     b.put_bytes(message)?;
                 }
+                acks_written = Self::try_write_acks(b, acks)?;
             }
             Packet::SmallUnreliable {
                 sequence,
@@ -303,6 +425,7 @@ impl Packet {
                     b.put_varint(message.len() as u64)?;
                     b.put_bytes(message)?;
                 }
+                acks_written = Self::try_write_acks(b, acks)?;
             }
             Packet::ReliableSlice {
                 sequence,
@@ -317,6 +440,7 @@ impl Packet {
                 b.put_varint(slice.num_slices as u64)?;
                 b.put_varint(slice.payload.len() as u64)?;
                 b.put_bytes(&slice.payload)?;
+                acks_written = Self::try_write_acks(b, acks)?;
             }
             Packet::UnreliableSlice {
                 sequence,
@@ -331,72 +455,37 @@ impl Packet {
                 b.put_varint(slice.num_slices as u64)?;
                 b.put_varint(slice.payload.len() as u64)?;
                 b.put_bytes(&slice.payload)?;
+                acks_written = Self::try_write_acks(b, acks)?;
             }
-            Packet::Ack { sequence, ack_ranges } => {
+            Packet::Ack { sequence } => {
                 b.put_u8(4)?;
                 b.put_varint(*sequence)?;
-
-                // Consider this ranges:
-                // [20010..20020   ,  20035..20040]
-                //  <----10----><-15-><----5------>
-                //
-                // We can represented more compactly each range if we serialize it as a sequence of
-                // offsets starting with the first 'start', since the difference is usually small.
-                // The ranges would become before serializing:
-                // 20010 10 1 15 5
-                //   |   |  | |  |
-                //   |   |  | |  +---> 5: size of 20035..20040
-                //   |   |  | +-----> 15: gap between ranges 20010..20020 and 20035..20040
-                //   |   |  +--------> 1: remaining number of ranges
-                //   |   +----------> 10: size of 20010..20020
-                //   +-----------> 20040: start of 20010..20020
-                //
-                // Since ranges and gaps should always be at least size 1, we store them with -1.
-                //
-                // We can always reconstruct the ranges using the end of the previous one and the gap.
-
-                // Iterate
-                let mut it = ack_ranges.iter();
-
-                // Extract the first range (first in the iterator)
-                let first = it.next().unwrap();
-                let first_range_size = first.end - first.start;
-                if first_range_size == 0 {
+                acks_written = Self::try_write_acks(b, acks)?;
+                if !acks_written {
                     return Err(SerializationError::InvalidAckRange);
-                }
-
-                b.put_varint(first.start)?;
-                b.put_varint(first_range_size - 1)?;
-
-                // Write the number of remaining ranges
-                b.put_varint(it.len() as u64)?;
-
-                let mut previous_range_end = first.end;
-                // For each subsequent range:
-                for range in it {
-                    // Calculate the gap between the end of the previous range and the start of the current range
-                    let gap = range.start - previous_range_end;
-                    let range_size = range.end - range.start;
-                    if range_size == 0 || gap == 0 {
-                        return Err(SerializationError::InvalidAckRange);
-                    }
-
-                    b.put_varint(gap - 1)?;
-                    b.put_varint(range_size - 1)?;
-
-                    previous_range_end = range.end;
                 }
             }
         }
 
-        Ok(before - b.cap())
+        Ok((before - b.cap(), acks_written))
     }
 
     /// See [`PacketPartialDeser`] for the non-allocating version if you just want to process packets
     /// and discard them.
     #[allow(unused)]
-    pub fn from_bytes(data: &[u8]) -> Result<Self, SerializationError> {
+    pub fn from_bytes(data: &[u8]) -> Result<(Self, Option<PacketAcks>), SerializationError> {
         PacketPartialDeser::from_raw_bytes(data)?.into_packet()
+    }
+
+    fn try_write_acks(b: &mut octets::OctetsMut, acks: Option<&[u8]>) -> Result<bool, SerializationError> {
+        if let Some(acks) = acks
+            && b.off() <= SLICE_SIZE
+            && acks.len() <= SLICE_SIZE - b.off()
+        {
+            b.put_bytes(acks)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -470,6 +559,8 @@ impl PacketPartialDeser {
                 if payload.len() > SLICE_SIZE {
                     return Err(SerializationError::SliceSizeAboveLimit);
                 }
+                let pos = b.off() + message_len;
+                let ack_ranges = AckRangesIterator::try_deserialize(bytes.slice(pos..))?;
 
                 let slice = Slice {
                     message_id,
@@ -481,6 +572,7 @@ impl PacketPartialDeser {
                     sequence,
                     channel_id,
                     slice,
+                    ack_ranges,
                 })
             }
             3 => {
@@ -499,6 +591,8 @@ impl PacketPartialDeser {
                     return Err(SerializationError::BufferTooShort);
                 }
                 let payload = bytes.slice(b.off()..b.off() + message_len);
+                let pos = b.off() + message_len;
+                let ack_ranges = AckRangesIterator::try_deserialize(bytes.slice(pos..))?;
 
                 let slice = Slice {
                     message_id,
@@ -510,34 +604,21 @@ impl PacketPartialDeser {
                     sequence,
                     channel_id,
                     slice,
+                    ack_ranges,
                 })
             }
             4 => {
                 // Ack
                 let sequence = Self::deserialize_sequence(&mut b)?;
-
-                let first_range_start = b.get_varint()?;
-                let first_range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
-                let num_remaining_ranges = b.get_varint()?;
-
-                if first_range_size > u64::MAX - first_range_start || num_remaining_ranges > 1_000 {
-                    return Err(SerializationError::InvalidAckRange);
-                }
-
-                let ack_ranges = AckRangesIterator::new(
-                    first_range_start..(first_range_start + first_range_size),
-                    num_remaining_ranges,
-                    bytes.slice(b.off()..),
-                );
-
+                let ack_ranges = AckRangesIterator::try_deserialize(bytes.slice(b.off()..))?.ok_or(SerializationError::InvalidAckRange)?;
                 Ok(Self::Ack { sequence, ack_ranges })
             }
             _ => Err(SerializationError::InvalidPacketType),
         }
     }
 
-    /// Fully deserialize to a [`Packet`].
-    pub fn into_packet(self) -> Result<Packet, SerializationError> {
+    /// Fully deserialize to a [`Packet`] and [`PacketAcks`].
+    pub fn into_packet(self) -> Result<(Packet, Option<PacketAcks>), SerializationError> {
         match self {
             Self::SmallReliable {
                 sequence,
@@ -549,11 +630,16 @@ impl PacketPartialDeser {
                 while let Some((message_id, message)) = messages.next()? {
                     accumulated.push((message_id, message));
                 }
-                Ok(Packet::SmallReliable {
-                    sequence,
-                    channel_id,
-                    messages: accumulated,
-                })
+                let maybe_acks = Self::get_maybe_acks(messages.into_acks_iter()?)?;
+
+                Ok((
+                    Packet::SmallReliable {
+                        sequence,
+                        channel_id,
+                        messages: accumulated,
+                    },
+                    maybe_acks,
+                ))
             }
             Self::SmallUnreliable {
                 sequence,
@@ -565,50 +651,71 @@ impl PacketPartialDeser {
                 while let Some(message) = messages.next()? {
                     accumulated.push(message);
                 }
-                Ok(Packet::SmallUnreliable {
-                    sequence,
-                    channel_id,
-                    messages: accumulated,
-                })
+                let maybe_acks = Self::get_maybe_acks(messages.into_acks_iter()?)?;
+
+                Ok((
+                    Packet::SmallUnreliable {
+                        sequence,
+                        channel_id,
+                        messages: accumulated,
+                    },
+                    maybe_acks,
+                ))
             }
             Self::ReliableSlice {
                 sequence,
                 channel_id,
                 slice,
-            } => Ok(Packet::ReliableSlice {
-                sequence,
-                channel_id,
-                slice,
-            }),
+                ack_ranges,
+            } => {
+                let maybe_acks = Self::get_maybe_acks(ack_ranges)?;
+                Ok((
+                    Packet::ReliableSlice {
+                        sequence,
+                        channel_id,
+                        slice,
+                    },
+                    maybe_acks,
+                ))
+            }
             Self::UnreliableSlice {
                 sequence,
                 channel_id,
                 slice,
-            } => Ok(Packet::UnreliableSlice {
-                sequence,
-                channel_id,
-                slice,
-            }),
+                ack_ranges,
+            } => {
+                let maybe_acks = Self::get_maybe_acks(ack_ranges)?;
+                Ok((
+                    Packet::UnreliableSlice {
+                        sequence,
+                        channel_id,
+                        slice,
+                    },
+                    maybe_acks,
+                ))
+            }
             Self::Ack { sequence, mut ack_ranges } => {
-                ack_ranges.reset();
-                let mut accumulated = Vec::with_capacity(ack_ranges.len as usize);
-                while let Some(range) = ack_ranges.next()? {
-                    accumulated.push(range);
-                }
-                Ok(Packet::Ack {
-                    sequence,
-                    ack_ranges: accumulated,
-                })
+                let mut acks = PacketAcks::default();
+                ack_ranges.into_acks(&mut acks)?;
+                Ok((Packet::Ack { sequence }, Some(acks)))
             }
         }
     }
 
     fn deserialize_sequence(b: &mut octets::Octets) -> Result<u64, SerializationError> {
         let sequence = b.get_varint()?;
+        // Sequence ranges end in sequence + 1 so we must check this.
         if sequence == u64::MAX {
             return Err(SerializationError::InvalidSequence);
         }
         Ok(sequence)
+    }
+
+    fn get_maybe_acks(acks: Option<AckRangesIterator>) -> Result<Option<PacketAcks>, SerializationError> {
+        let Some(mut it) = acks else { return Ok(None) };
+        let mut packet = PacketAcks::default();
+        it.into_acks(&mut packet)?;
+        Ok(Some(packet))
     }
 }
 
@@ -626,10 +733,36 @@ mod tests {
         };
 
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        packet.to_bytes(&mut b).unwrap();
+        packet.to_bytes(&mut b, None).unwrap();
 
-        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
-        assert_eq!(packet, recv_packet);
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
+    }
+
+    #[test]
+    fn serialize_small_reliable_packet_with_acks() {
+        let mut ack_buffer = [0u8; 1300];
+        let mut buffer = [0u8; 1300];
+        let packet = Packet::SmallReliable {
+            sequence: 0,
+            channel_id: 0,
+            messages: vec![(0, vec![0, 0, 0].into()), (1, vec![1, 1, 1].into()), (2, vec![2, 2, 2].into())],
+        };
+        let acks = PacketAcks {
+            ack_ranges: vec![3..7, 8..20],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, Some(acks));
     }
 
     #[test]
@@ -642,10 +775,36 @@ mod tests {
         };
 
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        packet.to_bytes(&mut b).unwrap();
+        packet.to_bytes(&mut b, None).unwrap();
 
-        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
-        assert_eq!(packet, recv_packet);
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
+    }
+
+    #[test]
+    fn serialize_small_unreliable_packet_with_acks() {
+        let mut ack_buffer = [0u8; 1300];
+        let mut buffer = [0u8; 1300];
+        let packet = Packet::SmallUnreliable {
+            sequence: 0,
+            channel_id: 0,
+            messages: vec![vec![0, 0, 0].into(), vec![1, 1, 1].into(), vec![2, 2, 2].into()],
+        };
+        let acks = PacketAcks {
+            ack_ranges: vec![3..7, 8..20],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, Some(acks));
     }
 
     #[test]
@@ -664,10 +823,71 @@ mod tests {
         };
 
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        packet.to_bytes(&mut b).unwrap();
+        let (_, acks_written) = packet.to_bytes(&mut b, None).unwrap();
+        assert!(!acks_written);
 
-        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
-        assert_eq!(packet, recv_packet);
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
+    }
+
+    #[test]
+    fn serialize_reliable_slice_packet_with_acks() {
+        let mut ack_buffer = [0u8; 1300];
+        let acks = PacketAcks {
+            ack_ranges: vec![3..7, 8..20],
+        };
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut buffer = [0u8; 1300];
+        let packet = Packet::ReliableSlice {
+            sequence: 0,
+            channel_id: 0,
+            slice: Slice {
+                message_id: 0,
+                slice_index: 0,
+                num_slices: 1,
+                payload: vec![5; SLICE_SIZE / 2].into(),
+            },
+        };
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, Some(acks));
+    }
+
+    #[test]
+    fn serialize_reliable_slice_packet_with_acks_too_big() {
+        let mut ack_buffer = [0u8; 1300];
+        let mut buffer = [0u8; 1300];
+        let packet = Packet::ReliableSlice {
+            sequence: 0,
+            channel_id: 0,
+            slice: Slice {
+                message_id: 0,
+                slice_index: 0,
+                num_slices: 1,
+                payload: vec![5; SLICE_SIZE].into(),
+            },
+        };
+        let acks = PacketAcks {
+            ack_ranges: vec![3..7, 8..20],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(!acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
     }
 
     #[test]
@@ -686,53 +906,131 @@ mod tests {
         };
 
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        packet.to_bytes(&mut b).unwrap();
+        let (_, acks_written) = packet.to_bytes(&mut b, None).unwrap();
+        assert!(!acks_written);
 
-        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
-        assert_eq!(packet, recv_packet);
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
+    }
+
+    #[test]
+    fn serialize_unreliable_slice_packet_with_acks() {
+        let mut ack_buffer = [0u8; 1300];
+        let acks = PacketAcks {
+            ack_ranges: vec![3..7, 8..20],
+        };
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut buffer = [0u8; 1300];
+        let packet = Packet::UnreliableSlice {
+            sequence: 0,
+            channel_id: 0,
+            slice: Slice {
+                message_id: 0,
+                slice_index: 0,
+                num_slices: 1,
+                payload: vec![5; SLICE_SIZE / 2].into(),
+            },
+        };
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, Some(acks));
+    }
+
+    #[test]
+    fn serialize_unreliable_slice_packet_with_acks_too_big() {
+        let mut ack_buffer = [0u8; 1300];
+        let mut buffer = [0u8; 1300];
+        let packet = Packet::UnreliableSlice {
+            sequence: 0,
+            channel_id: 0,
+            slice: Slice {
+                message_id: 0,
+                slice_index: 0,
+                num_slices: 1,
+                payload: vec![5; SLICE_SIZE].into(),
+            },
+        };
+        let acks = PacketAcks {
+            ack_ranges: vec![3..7, 8..20],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(!acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
     }
 
     #[test]
     fn serialize_ack_packet() {
+        let mut ack_buffer = [0u8; 1300];
         let mut buffer = [0u8; 1300];
 
-        let packet = Packet::Ack {
-            sequence: 0,
+        let packet = Packet::Ack { sequence: 0 };
+        let acks = PacketAcks {
             ack_ranges: vec![3..7, 10..20, 30..100],
         };
 
-        let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        packet.to_bytes(&mut b).unwrap();
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
 
-        let recv_packet = Packet::from_bytes(buffer.as_slice()).unwrap();
-        assert_eq!(packet, recv_packet);
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, Some(acks));
     }
 
     #[test]
-    fn serialize_ack_packet_err_size() {
-        let mut buffer = [0u8; 1300];
+    fn serialize_packet_acks_empty() {
+        let mut ack_buffer = [0u8; 1300];
 
-        let packet = Packet::Ack {
-            sequence: 0,
+        let acks = PacketAcks {
+            // zero ranges not allowed
+            ack_ranges: vec![],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        assert!(acks.to_bytes(&mut acks_b).is_err());
+    }
+
+    #[test]
+    fn serialize_packet_acks_err_size() {
+        let mut ack_buffer = [0u8; 1300];
+
+        let acks = PacketAcks {
             // empty range not allowed
             ack_ranges: vec![3..7, 10..20, 22..22],
         };
 
-        let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        assert!(packet.to_bytes(&mut b).is_err());
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        assert!(acks.to_bytes(&mut acks_b).is_err());
     }
 
     #[test]
-    fn serialize_ack_packet_err_gap() {
-        let mut buffer = [0u8; 1300];
+    fn serialize_packet_acks_err_gap() {
+        let mut ack_buffer = [0u8; 1300];
 
-        let packet = Packet::Ack {
-            sequence: 0,
+        let acks = PacketAcks {
             // gap of 0 not allowed
             ack_ranges: vec![3..7, 7..20],
         };
 
-        let mut b = octets::OctetsMut::with_slice(&mut buffer);
-        assert!(packet.to_bytes(&mut b).is_err());
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        assert!(acks.to_bytes(&mut acks_b).is_err());
     }
 }
