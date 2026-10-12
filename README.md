@@ -38,6 +38,10 @@ See `renetcode2/NETCODE_EXTENSIONS.md`.
 - Includes built-in data transports: UDP, memory channels, WebTransport, WebSockets.
     - See `src/examples` for a fully cross-platform demo.
 
+### Improvements
+
+- Keepalive mechanism with ack bursts for reliable messages in place of the unlimited ack loop in `renet`. See the new field for `AckConfig` in `ConnectionConfig`. Also includes ack inlining in messages for more efficient packets.
+
 
 ## Building docs
 
