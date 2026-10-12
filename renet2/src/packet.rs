@@ -80,7 +80,7 @@ impl AckRanges {
     ///
     /// Ranges are prefixed with the number of ranges that are recorded.
     /// - This is *not* -1 because we can append acks to any packet type and need a way to detect if there are
-    /// acks recorded.
+    ///   acks recorded.
     /// - Range count is <= 64, which means we have 2 extra bits.
     ///   - Bits 0-5: range count
     ///   - Bit 6: indicates if an rtt delay is appended
@@ -453,9 +453,8 @@ impl Packet {
     /// `acks` will be appended if it will fit with the message in [`MAX_PAYLOAD_BYTES`].
     pub fn to_bytes(&self, b: &mut octets::OctetsMut, acks: Option<&[u8]>) -> Result<(usize, bool), SerializationError> {
         let before = b.cap();
-        let acks_written;
 
-        match self {
+        let acks_written = match self {
             Self::SmallReliable {
                 sequence,
                 channel_id,
@@ -470,7 +469,7 @@ impl Packet {
                     b.put_varint(message.len() as u64)?;
                     b.put_bytes(message)?;
                 }
-                acks_written = Self::try_write_acks(b, acks)?;
+                Self::try_write_acks(b, acks)?
             }
             Self::SmallUnreliable {
                 sequence,
@@ -485,7 +484,7 @@ impl Packet {
                     b.put_varint(message.len() as u64)?;
                     b.put_bytes(message)?;
                 }
-                acks_written = Self::try_write_acks(b, acks)?;
+                Self::try_write_acks(b, acks)?
             }
             Self::ReliableSlice {
                 sequence,
@@ -500,7 +499,7 @@ impl Packet {
                 b.put_varint(slice.num_slices as u64)?;
                 b.put_varint(slice.payload.len() as u64)?;
                 b.put_bytes(&slice.payload)?;
-                acks_written = Self::try_write_acks(b, acks)?;
+                Self::try_write_acks(b, acks)?
             }
             Self::UnreliableSlice {
                 sequence,
@@ -515,14 +514,14 @@ impl Packet {
                 b.put_varint(slice.num_slices as u64)?;
                 b.put_varint(slice.payload.len() as u64)?;
                 b.put_bytes(&slice.payload)?;
-                acks_written = Self::try_write_acks(b, acks)?;
+                Self::try_write_acks(b, acks)?
             }
             Self::KeepAlive { sequence } => {
                 b.put_u8(4)?;
                 b.put_varint(*sequence)?;
-                acks_written = Self::try_write_acks(b, acks)?;
+                Self::try_write_acks(b, acks)?
             }
-        }
+        };
 
         Ok((before - b.cap(), acks_written))
     }

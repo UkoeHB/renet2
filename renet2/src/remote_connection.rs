@@ -899,7 +899,7 @@ impl RenetClient {
 
         // Update rtt for only the last ack'd sequence if an rtt delay was specified.
         let rtt_delay_ms = ack_ranges.rtt_delay_ms().map_err(DisconnectReason::PacketSerialization)?;
-        if let Some(rtt_delay_ms) = rtt_delay_ms.clone() {
+        if let Some(rtt_delay_ms) = rtt_delay_ms {
             update_rtt_fn(self.sent_packets.get(self.u64_scratch.last().unwrap()).unwrap(), rtt_delay_ms);
         }
 
@@ -972,7 +972,7 @@ impl RenetClient {
 
         // Update rtt delay reference if we are adding a new highest sequence.
         // We don't set the ref to None since there may be acks that were delayed. We want
-        // the paired client to only look at the higest ack it receives after this point for updating rtt.
+        // the paired client to only look at the highest ack it receives after this point for updating rtt.
         // For example, this could be an unreliable message that showed up halfway through the keepalive timer.
         // When the next keepalive packet is sent out, only 'half the timeout' delay would have been artificially
         // added to the round trip for this packet.
