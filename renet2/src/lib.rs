@@ -10,7 +10,7 @@ mod server;
 pub use channel::{ChannelConfig, DefaultChannel, SendType};
 pub use error::{ChannelError, ClientNotFound, DisconnectReason};
 pub use packet::Payload;
-pub use remote_connection::{ConnectionConfig, NetworkInfo, RenetClient, RenetConnectionStatus};
+pub use remote_connection::{AckConfig, ConnectionConfig, NetworkInfo, RenetClient, RenetConnectionStatus};
 pub use server::{RenetServer, ServerEvent};
 
 pub use bytes::Bytes;

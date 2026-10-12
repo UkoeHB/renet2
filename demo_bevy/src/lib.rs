@@ -1,7 +1,7 @@
 use std::{f32::consts::PI, time::Duration};
 
 use bevy::prelude::*;
-use bevy_renet2::prelude::{ChannelConfig, ClientId, ConnectionConfig, SendType};
+use bevy_renet2::prelude::{AckConfig, ChannelConfig, ClientId, ConnectionConfig, SendType};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "netcode")]
@@ -115,6 +115,7 @@ impl ServerChannel {
 pub fn connection_config() -> ConnectionConfig {
     ConnectionConfig {
         available_bytes_per_tick: 1024 * 1024,
+        ack_config: AckConfig::default(),
         client_channels_config: ClientChannel::channels_config(),
         server_channels_config: ServerChannel::channels_config(),
     }
