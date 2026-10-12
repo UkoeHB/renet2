@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn serialize_small_reliable_packet() {
-        let mut buffer = [0u8; 1400];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::SmallReliable {
             sequence: 0,
             channel_id: 0,
@@ -749,8 +749,8 @@ mod tests {
 
     #[test]
     fn serialize_small_reliable_packet_with_acks() {
-        let mut ack_buffer = [0u8; 1400];
-        let mut buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::SmallReliable {
             sequence: 0,
             channel_id: 0,
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn serialize_small_unreliable_packet() {
-        let mut buffer = [0u8; 1400];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::SmallUnreliable {
             sequence: 0,
             channel_id: 0,
@@ -791,8 +791,8 @@ mod tests {
 
     #[test]
     fn serialize_small_unreliable_packet_with_acks() {
-        let mut ack_buffer = [0u8; 1400];
-        let mut buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::SmallUnreliable {
             sequence: 0,
             channel_id: 0,
@@ -816,7 +816,7 @@ mod tests {
 
     #[test]
     fn serialize_reliable_slice_packet() {
-        let mut buffer = [0u8; 1400];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let packet = Packet::ReliableSlice {
             sequence: 0,
@@ -840,14 +840,14 @@ mod tests {
 
     #[test]
     fn serialize_reliable_slice_packet_with_acks() {
-        let mut ack_buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let acks = AckRanges {
             ack_ranges: vec![3..7, 8..20],
         };
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
         let acks_len = acks.to_bytes(&mut acks_b).unwrap();
 
-        let mut buffer = [0u8; 1400];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::ReliableSlice {
             sequence: 0,
             channel_id: 0,
@@ -869,7 +869,7 @@ mod tests {
 
     #[test]
     fn serialize_unreliable_slice_packet() {
-        let mut buffer = [0u8; 1400];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let packet = Packet::UnreliableSlice {
             sequence: 0,
@@ -893,14 +893,14 @@ mod tests {
 
     #[test]
     fn serialize_unreliable_slice_packet_with_acks() {
-        let mut ack_buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let acks = AckRanges {
             ack_ranges: vec![3..7, 8..20],
         };
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
         let acks_len = acks.to_bytes(&mut acks_b).unwrap();
 
-        let mut buffer = [0u8; 1400];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::UnreliableSlice {
             sequence: 0,
             channel_id: 0,
@@ -922,8 +922,8 @@ mod tests {
 
     #[test]
     fn serialize_ack_packet() {
-        let mut ack_buffer = [0u8; 1400];
-        let mut buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let packet = Packet::Ack { sequence: 0 };
         let acks = AckRanges {
@@ -944,7 +944,7 @@ mod tests {
 
     #[test]
     fn serialize_packet_acks_empty() {
-        let mut ack_buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let acks = AckRanges {
             // zero ranges not allowed
@@ -957,7 +957,7 @@ mod tests {
 
     #[test]
     fn serialize_packet_acks_err_size() {
-        let mut ack_buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let acks = AckRanges {
             // empty range not allowed
@@ -970,7 +970,7 @@ mod tests {
 
     #[test]
     fn serialize_packet_acks_err_gap() {
-        let mut ack_buffer = [0u8; 1400];
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let acks = AckRanges {
             // gap of 0 not allowed
