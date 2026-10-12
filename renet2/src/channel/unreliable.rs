@@ -240,8 +240,8 @@ impl ReceiveChannelUnreliable {
             if current_time - *last_received >= DISCARD_AFTER {
                 lost_messages.push(message_id);
             } else {
-                // If the current message is not discard, the next ones will not be discarded
-                // since all the next message were sent after this one.
+                // If the current message is not discarded, the next ones will not be discarded
+                // since all the next messages were sent after this one.
                 break;
             }
         }
@@ -415,8 +415,9 @@ mod tests {
         let mut buffer = [0u8; 1400];
         for packet in packets {
             let mut oct = OctetsMut::with_slice(&mut buffer);
-            let len = packet.to_bytes(&mut oct).unwrap();
+            let (len, acks_written) = packet.to_bytes(&mut oct, None).unwrap();
             assert!(len < 1300);
+            assert!(!acks_written);
         }
     }
 }
