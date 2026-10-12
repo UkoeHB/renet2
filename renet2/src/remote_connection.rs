@@ -3,7 +3,7 @@ use crate::channel::unreliable::{ReceiveChannelUnreliable, SendChannelUnreliable
 use crate::channel::{ChannelConfig, DefaultChannel, SendType};
 use crate::connection_stats::ConnectionStats;
 use crate::error::DisconnectReason;
-use crate::packet::{AckRanges, AckRangesIterator, Packet, PacketPartialDeser, Payload, SerializationError};
+use crate::packet::{AckRanges, AckRangesIterator, Packet, PacketPartialDeser, Payload};
 use crate::zero_reinit_buffer;
 use bytes::Bytes;
 use octets::OctetsMut;
@@ -12,11 +12,16 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::time::Duration;
 
-/// Limit to 64 pending ranges (note: this keeps ack packets under 1 kB and limits acks map iter cost)
-pub(crate) const MAX_ACK_RANGES: u64 = 64;
+/// Limit to 63 pending ranges
+/// - This keeps ack packets under 1 kB and limits acks map iter cost.
+/// - The number of ranges can be stored with 6 bits.
+pub(crate) const MAX_ACK_RANGES: u64 = 63;
 
 /// Matches `NETCODE_MAX_PAYLOAD_BYTES`.
 pub(crate) const MAX_PAYLOAD_BYTES: usize = 1300;
+
+/// For stale sent packets that weren't acked.
+const DISCARD_AFTER: Duration = Duration::from_secs(3);
 
 /// Configuration for a renet connection and its channels.
 #[derive(Debug, Clone)]
@@ -24,30 +29,33 @@ pub struct ConnectionConfig {
     /// The number of bytes that is available per update tick to send messages.
     /// Default: 60_000, at 60hz this is 28.8 Mbps
     pub available_bytes_per_tick: u64,
+    /// Controls when acks are sent.
+    pub ack_config: AckConfig,
     /// The channels that the server sends to the client.
     /// The order of the channels in this Vec determines which channel has priority when generating packets.
-    /// Each tick, the first channel can consume up to `available_bytes_per_tick`,
-    /// used bytes are removed from it and passed to the next channel
+    /// Each tick, the first channel can consume up to `available_bytes_per_tick`.
+    /// Used bytes are removed from it and passed to the next channel.
     pub server_channels_config: Vec<ChannelConfig>,
     /// The channels that the client sends to the server.
     /// The order of the channels in this Vec determines which channel has priority when generating packets.
-    /// Each tick, the first channel can consume up to `available_bytes_per_tick`,
-    /// used bytes are removed from it and passed to the next channel
+    /// Each tick, the first channel can consume up to `available_bytes_per_tick`.
+    /// Used bytes are removed from it and passed to the next channel.
     pub client_channels_config: Vec<ChannelConfig>,
 }
 
 impl ConnectionConfig {
-    /// Makes a new config with default `available_bytes_per_tick`.
+    /// Makes a new config with default client configs.
     pub fn from_channels(server: Vec<ChannelConfig>, client: Vec<ChannelConfig>) -> Self {
         Self {
-            // At 60hz this is becomes 28.8 Mbps
+            // At 60hz this is 28.8 Mbps
             available_bytes_per_tick: 60_000,
+            ack_config: AckConfig::default(),
             server_channels_config: server,
             client_channels_config: client,
         }
     }
 
-    /// Makes a new config with default `available_bytes_per_tick` and the same server and client channels.
+    /// Makes a new config with default client configs and the same server and client channels.
     pub fn from_shared_channels(channels: Vec<ChannelConfig>) -> Self {
         Self::from_channels(channels.clone(), channels)
     }
@@ -81,18 +89,59 @@ impl ConnectionConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct AckConfig {
+    /// The timeout for keepalive packets.
+    /// If no packets were sent in the last `keepalive_timeout`, then a KeepAlive packet will be sent.
+    /// Default: 300ms
+    pub keepalive_timeout: Duration,
+    /// The timeout for fast keepalives triggered by [`Self::failing_connection_timeout`].
+    /// Default: 100ms
+    pub keepalive_timeout_fast: Duration,
+    /// If the last ack we received from a paired client points to a message we sent that is more than
+    /// `failing_connection_timeout` old, we temporarily speed up the keepalive cadence to [`Self::keepalive_timeout_fast`]
+    /// in case the network connection has become choppy and our packets are being dropped. If our packets are *not*
+    /// being dropped but the paired client's packets are, then our acks will point to old packets of the paired client
+    /// so the paired client will also trigger this timeout and both directions of the connection will speed up to
+    /// overcome the degraded conditions.
+    /// Default: 1.2s
+    pub failing_connection_timeout: Duration,
+    /// The number of times acks should be sent after receiving a reliable message from the paired client before
+    /// falling back to the keepalive cadence (keepalives include pending acks but are delayed). Tradeoff between packet
+    /// loss and bandwidth. Note if the server tick rate is fairly slow (e.g. 10hz) then even with a small ack burst
+    /// the paired client will resend reliable messages before you get through the burst count (assuming 1 ack sent
+    /// per tick, which will be the case if no messages are sent out that acks can piggy-back on). Which will reset
+    /// the burst count if packets aren't lost. So a high `ack_burst` won't be that useful.
+    /// Default: 5
+    pub ack_burst: u16,
+}
+
+impl Default for AckConfig {
+    fn default() -> Self {
+        Self {
+            keepalive_timeout: Duration::from_millis(300),
+            keepalive_timeout_fast: Duration::from_millis(100),
+            failing_connection_timeout: Duration::from_millis(1200),
+            ack_burst: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct PacketSent {
     sent_at: Duration,
     info: PacketSentInfo,
 }
 
-/// When an ack packet is acknowledged,
-/// we remove all Ack ranges below the largest_acked sent by it.
+/// When a sent packet is acknowledged, we remove all pending ack ranges for received packets below the highest ack
+/// that we sent in that packet. This removes all successfully-acked received packets *and* packets that arrived late
+/// with a lower sequence while the ack for our sent packet was in transit. Reliable packets always trigger an
+/// ack burst, so the described ack discarding mechanism will at most truncate the burst (from the point of view
+/// of the discarded sequence) after at least one ack was sent. If a reliable packet is both late in arriving and
+/// all its burst acks are lost, then it will ultimately be resent by the paired client after the resend timer.
 /// All packets may contain ack ranges.
 #[derive(Debug, Clone)]
 enum PacketSentInfo {
-    // No need to track info for unreliable messages
-    None {
+    Unreliable {
         largest_acked_packet: Option<u64>,
     },
     ReliableMessages {
@@ -105,9 +154,6 @@ enum PacketSentInfo {
         message_id: u64,
         slice_index: usize,
         largest_acked_packet: Option<u64>,
-    },
-    Ack {
-        largest_acked_packet: u64,
     },
 }
 
@@ -151,16 +197,25 @@ pub enum RenetConnectionStatus {
 #[derive(Debug)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct RenetClient {
+    // ------ Configs -------
     has_reliable_socket: bool,
+    available_bytes_per_tick: u64,
+    ack_config: AckConfig,
+    // ------ State -------
     packet_sequence: u64,
+    // An approximation of current time, it will drift. Should not be exposed to the public API.
     current_time: Duration,
+    next_keepalive: Duration,
+    ack_burst_count: u16,
+    // Highest send time of all packets we sent that were acked by the paired client.
+    highest_send_time_of_acked_sends: Duration,
+    rtt_delay_ref: Option<Duration>,
     sent_packets: BTreeMap<u64, PacketSent>,
     pending_acks: Vec<Range<u64>>,
     channel_send_order: Vec<ChannelOrder>,
     send_channels: Vec<SendChannel>,
     receive_channels: Vec<ReceiveChannel>,
     stats: ConnectionStats,
-    available_bytes_per_tick: u64,
     connection_status: RenetConnectionStatus,
     rtt: f64,
     // ------ Scratch space -------
@@ -190,6 +245,7 @@ impl RenetClient {
         Self::from_channels(
             has_reliable_socket,
             config.available_bytes_per_tick,
+            config.ack_config,
             config.client_channels_config,
             config.server_channels_config,
         )
@@ -205,6 +261,7 @@ impl RenetClient {
         Self::from_channels(
             has_reliable_socket,
             config.available_bytes_per_tick,
+            config.ack_config,
             config.server_channels_config,
             config.client_channels_config,
         )
@@ -213,6 +270,7 @@ impl RenetClient {
     fn from_channels(
         has_reliable_socket: bool,
         available_bytes_per_tick: u64,
+        ack_config: AckConfig,
         send_channels_config: Vec<ChannelConfig>,
         receive_channels_config: Vec<ChannelConfig>,
     ) -> Self {
@@ -278,8 +336,15 @@ impl RenetClient {
 
         Self {
             has_reliable_socket,
+            available_bytes_per_tick,
+            ack_config,
             packet_sequence: 0,
             current_time: Duration::ZERO,
+            // Causes a keepalive to be immediately sent.
+            next_keepalive: Duration::ZERO,
+            ack_burst_count: 0,
+            highest_send_time_of_acked_sends: Duration::ZERO,
+            rtt_delay_ref: None,
             sent_packets: BTreeMap::new(),
             pending_acks: Vec::new(),
             channel_send_order,
@@ -287,7 +352,6 @@ impl RenetClient {
             receive_channels,
             stats: ConnectionStats::new(),
             rtt: 0.0,
-            available_bytes_per_tick,
             connection_status: RenetConnectionStatus::Connecting,
             u64_scratch: Vec::new(),
             payloads_ser: Vec::new(),
@@ -476,7 +540,6 @@ impl RenetClient {
         // Discard lost packets
         self.u64_scratch.clear();
         for (&sequence, sent_packet) in self.sent_packets.iter() {
-            const DISCARD_AFTER: Duration = Duration::from_secs(3);
             if self.current_time - sent_packet.sent_at >= DISCARD_AFTER {
                 self.u64_scratch.push(sequence);
             } else {
@@ -493,6 +556,11 @@ impl RenetClient {
                 message_ids.clear();
                 self.message_ids_cache.push(message_ids);
             }
+        }
+
+        // Reset rtt delay
+        if self.sent_packets.is_empty() {
+            self.rtt_delay_ref = None;
         }
     }
 
@@ -511,12 +579,19 @@ impl RenetClient {
             return Ok(());
         }
 
+        // Extract packet
         self.stats.received_packet(packet.len() as u64);
         let partial = PacketPartialDeser::from_raw_bytes(packet).map_err(DisconnectReason::PacketDeserialization)?;
+        let sequence = partial.sequence();
 
-        self.add_pending_ack(partial.sequence());
+        // Handle reliable
+        if partial.is_reliable() {
+            // Reset ack burst
+            self.ack_burst_count = self.ack_config.ack_burst;
+        }
 
-        match partial {
+        // Handle messages
+        let ack_ranges = match partial {
             PacketPartialDeser::SmallReliable {
                 channel_id, mut messages, ..
             } => {
@@ -529,9 +604,8 @@ impl RenetClient {
                         .process_message(message, message_id)
                         .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
                 }
-                if let Some(ack_ranges) = messages.into_acks_iter().map_err(DisconnectReason::PacketDeserialization)? {
-                    self.handle_incoming_ack_ranges(ack_ranges)?;
-                }
+
+                messages.into_acks_iter().map_err(DisconnectReason::PacketDeserialization)?
             }
             PacketPartialDeser::SmallUnreliable {
                 channel_id, mut messages, ..
@@ -543,9 +617,8 @@ impl RenetClient {
                 while let Some(message) = messages.next().map_err(DisconnectReason::PacketDeserialization)? {
                     channel.process_message(message);
                 }
-                if let Some(ack_ranges) = messages.into_acks_iter().map_err(DisconnectReason::PacketDeserialization)? {
-                    self.handle_incoming_ack_ranges(ack_ranges)?;
-                }
+
+                messages.into_acks_iter().map_err(DisconnectReason::PacketDeserialization)?
             }
             PacketPartialDeser::ReliableSlice {
                 channel_id,
@@ -560,9 +633,8 @@ impl RenetClient {
                 channel
                     .process_slice(slice)
                     .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
-                if let Some(ack_ranges) = ack_ranges {
-                    self.handle_incoming_ack_ranges(ack_ranges)?;
-                }
+
+                ack_ranges
             }
             PacketPartialDeser::UnreliableSlice {
                 channel_id,
@@ -577,12 +649,20 @@ impl RenetClient {
                 channel
                     .process_slice(slice, self.current_time)
                     .map_err(|error| DisconnectReason::ReceiveChannelError { channel_id, error })?;
-                if let Some(ack_ranges) = ack_ranges {
-                    self.handle_incoming_ack_ranges(ack_ranges)?;
-                }
+
+                ack_ranges
             }
-            PacketPartialDeser::Ack { ack_ranges, .. } => self.handle_incoming_ack_ranges(ack_ranges)?,
+            PacketPartialDeser::KeepAlive { ack_ranges, .. } => ack_ranges,
+        };
+
+        // Handle acks
+        if let Some(ack_ranges) = ack_ranges {
+            self.handle_incoming_ack_ranges(ack_ranges)?;
         }
+
+        // Do this after handling ack ranges in case the paired client duplicates a sequence that we already acked
+        // or uses sequences out of order.
+        self.add_pending_ack(sequence);
 
         Ok(())
     }
@@ -613,43 +693,48 @@ impl RenetClient {
         let mut acks_buffer = self.payloads_cache.pop().unwrap_or_default();
         zero_reinit_buffer(&mut acks_buffer, MAX_PAYLOAD_BYTES);
         let mut largest_ack = 0;
-        let acks_prep = !self.pending_acks.is_empty();
-        if acks_prep {
-            let mut ack_ranges = std::mem::take(&mut self.ack_ranges_reuse);
-            ack_ranges.extend(self.pending_acks.iter().cloned());
-            let mut ranges = AckRanges { ack_ranges };
+        let rtt_delay_ms = self.rtt_delay_ref.map(|r| self.current_time.saturating_sub(r).as_millis() as u64);
+        let has_pending_acks = !self.pending_acks.is_empty();
+        let mut acks_calcd = false;
+        let mut acks_ser_fn = |can_ack: bool, acks_buffer: &mut Vec<u8>| -> Result<Option<u64>, DisconnectReason> {
+            if !(can_ack && has_pending_acks) {
+                return Ok(None);
+            }
+            if !acks_calcd {
+                acks_calcd = true;
+                let mut ack_ranges = std::mem::take(&mut self.ack_ranges_reuse);
+                ack_ranges.extend(self.pending_acks.iter().cloned());
+                let mut ranges = AckRanges { ack_ranges, rtt_delay_ms };
 
-            let last_range = ranges.ack_ranges.last().unwrap();
-            largest_ack = last_range.end - 1;
+                let last_range = ranges.ack_ranges.last().unwrap();
+                largest_ack = last_range.end - 1;
 
-            let mut oct = OctetsMut::with_slice(acks_buffer.as_mut_slice());
-            let len = ranges.to_bytes(&mut oct).map_err(DisconnectReason::PacketSerialization)?;
-            ranges.ack_ranges.clear();
-            self.ack_ranges_reuse = ranges.ack_ranges;
-            acks_buffer.resize(len, 0); // should always be <= existing size
-        }
-        let mut acks_ser: Option<&[u8]> = if acks_prep { Some(&acks_buffer) } else { None };
+                let mut oct = OctetsMut::with_slice(acks_buffer.as_mut_slice());
+                let len = ranges.to_bytes(&mut oct).map_err(DisconnectReason::PacketSerialization)?;
+                ranges.ack_ranges.clear();
+                self.ack_ranges_reuse = ranges.ack_ranges;
+                acks_buffer.resize(len, 0); // should always be <= existing size
+            }
+
+            Ok(Some(largest_ack))
+        };
 
         let sent_at = self.current_time;
         let mut bytes_sent: u64 = 0;
 
         // Callback for applying packets to self.
         // Returns true if acks were written.
-        let mut apply_packet_fn = |packet: &Packet, acks_ser: &mut Option<&[u8]>| -> Result<bool, DisconnectReason> {
+        let mut apply_packet_fn = |packet: &Packet, can_ack: bool| -> Result<bool, DisconnectReason> {
+            let largest_ack = acks_ser_fn(can_ack, &mut acks_buffer)?;
+            let acks_ser = if largest_ack.is_some() { Some(acks_buffer.as_slice()) } else { None };
+
             // Serialize packet
             let mut buffer = self.payloads_cache.pop().unwrap_or_default();
             zero_reinit_buffer(&mut buffer, MAX_PAYLOAD_BYTES);
             let mut oct = OctetsMut::with_slice(buffer.as_mut_slice());
-            let (len, acks_written) = packet
-                .to_bytes(&mut oct, *acks_ser)
-                .map_err(DisconnectReason::PacketSerialization)?;
+            let (len, acks_written) = packet.to_bytes(&mut oct, acks_ser).map_err(DisconnectReason::PacketSerialization)?;
 
-            // We only write acks once.
-            let mut largest_acked_packet = None;
-            if acks_written {
-                *acks_ser = None;
-                largest_acked_packet = Some(largest_ack);
-            }
+            let largest_acked_packet = if acks_written { largest_ack } else { None };
 
             bytes_sent += len as u64;
             buffer.resize(len, 0); // should always be <= existing size
@@ -699,7 +784,7 @@ impl RenetClient {
                         *sequence,
                         PacketSent {
                             sent_at,
-                            info: PacketSentInfo::None { largest_acked_packet },
+                            info: PacketSentInfo::Unreliable { largest_acked_packet },
                         },
                     );
                 }
@@ -708,18 +793,16 @@ impl RenetClient {
                         *sequence,
                         PacketSent {
                             sent_at,
-                            info: PacketSentInfo::None { largest_acked_packet },
+                            info: PacketSentInfo::Unreliable { largest_acked_packet },
                         },
                     );
                 }
-                Packet::Ack { sequence } => {
-                    let largest_acked_packet =
-                        largest_acked_packet.ok_or(DisconnectReason::PacketSerialization(SerializationError::InvalidAckRange))?;
+                Packet::KeepAlive { sequence } => {
                     self.sent_packets.insert(
                         *sequence,
                         PacketSent {
                             sent_at,
-                            info: PacketSentInfo::Ack { largest_acked_packet },
+                            info: PacketSentInfo::Unreliable { largest_acked_packet },
                         },
                     );
                 }
@@ -727,6 +810,14 @@ impl RenetClient {
 
             Ok(acks_written)
         };
+
+        // Get number of times to try to append acks to message packets.
+        // - Try to send them with a message at least once since it's much more efficient even if there is no burst. If
+        //   we send acks with a message then we don't send a keepalive packet even if there is burst remaining.
+        //   Burst favors one ack send per tick unless there are multiple messages to piggy-back on in a tick.
+        let message_max_acks = self.ack_burst_count.max(1);
+        let mut acks_count_sent = 0;
+        let mut messages_count_sent = 0;
 
         // Get packets from each channel
         let mut available_bytes = self.available_bytes_per_tick;
@@ -737,7 +828,10 @@ impl RenetClient {
                         panic!("Packet to send has invalid channel {channel_id}");
                     };
                     for packet in channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes, self.current_time) {
-                        apply_packet_fn(packet, &mut acks_ser)?;
+                        if apply_packet_fn(packet, acks_count_sent < message_max_acks)? {
+                            acks_count_sent += 1;
+                        }
+                        messages_count_sent += 1;
                     }
                 }
                 ChannelOrder::Unreliable(channel_id) => {
@@ -745,21 +839,47 @@ impl RenetClient {
                         panic!("Packet to send has invalid channel {channel_id}");
                     };
                     for packet in channel.get_packets_to_send(&mut self.packet_sequence, &mut available_bytes) {
-                        apply_packet_fn(packet, &mut acks_ser)?;
+                        if apply_packet_fn(packet, acks_count_sent < message_max_acks)? {
+                            acks_count_sent += 1;
+                        }
+                        messages_count_sent += 1;
                     }
                 }
             }
         }
 
-        // Only send an explicit ack message if acks still need to be sent
-        if acks_ser.is_some() {
+        // Send an explicit ack message if acks still need to be sent
+        // - We don't add an ack packet if we failed to append acks to a message unless burst count
+        //   is nonzero or keepalive is required.
+        // - This keeps the connection alive even if no messages are sent on connect or if
+        //   sent packets all expire so there are no acks to send.
+        let burst_needed = acks_count_sent == 0 && self.ack_burst_count > 0;
+        let keepalive_expired = self.current_time >= self.next_keepalive;
+        let keepalive_needed = keepalive_expired && messages_count_sent == 0;
+
+        if burst_needed || keepalive_needed {
             let sequence = self.packet_sequence;
             self.packet_sequence += 1;
-            let packet = Packet::Ack { sequence };
-            apply_packet_fn(&packet, &mut acks_ser)?;
+            let packet = Packet::KeepAlive { sequence };
+            if apply_packet_fn(&packet, true)? {
+                acks_count_sent += 1;
+            }
+            messages_count_sent += 1;
         }
         self.payloads_cache.push(acks_buffer);
 
+        // Update state
+        self.ack_burst_count = self.ack_burst_count.saturating_sub(acks_count_sent);
+        if messages_count_sent > 0 {
+            self.next_keepalive = self.get_next_keepalive();
+            if acks_count_sent > 0 {
+                self.rtt_delay_ref = None;
+            }
+        } else if self.rtt_delay_ref.is_none() && has_pending_acks {
+            // In this case we are at the *start* of an ack delay. The delay will be from this point in the tick
+            // where delay started to the same point where the delay ends (which is when we send a packet with acks).
+            self.rtt_delay_ref = Some(self.current_time);
+        }
         self.stats.sent_packets(self.payloads_ser.len() as u64, bytes_sent);
 
         // &self.payloads_ser has the payloads
@@ -775,20 +895,41 @@ impl RenetClient {
                 self.u64_scratch.push(sequence)
             }
         }
+        if self.u64_scratch.is_empty() {
+            return Ok(());
+        }
+
+        // Delay refers to artificial delay added by the paired client to avoid a spammy ack loop.
+        let mut update_rtt_fn = |sent_packet: &PacketSent, delay_ms: u64| {
+            let mut rtt = (self.current_time - sent_packet.sent_at).as_secs_f64();
+            rtt -= (delay_ms as f64) * 0.001;
+            rtt = rtt.max(0.0);
+            if self.rtt < f64::EPSILON {
+                self.rtt = rtt;
+            } else {
+                self.rtt = self.rtt * 0.875 + rtt * 0.125;
+            }
+        };
+
+        // Update rtt for only the last ack'd sequence if an rtt delay was specified.
+        let rtt_delay_ms = ack_ranges.rtt_delay_ms().map_err(DisconnectReason::PacketSerialization)?;
+        if let Some(rtt_delay_ms) = rtt_delay_ms {
+            update_rtt_fn(self.sent_packets.get(self.u64_scratch.last().unwrap()).unwrap(), rtt_delay_ms);
+        }
 
         for packet_sequence in self.u64_scratch.iter().copied() {
             let sent_packet = self.sent_packets.remove(&packet_sequence).unwrap();
             self.stats.acked_packet(sent_packet.sent_at, self.current_time);
 
             // Update rtt
-            let rtt = (self.current_time - sent_packet.sent_at).as_secs_f64();
-            if self.rtt < f64::EPSILON {
-                self.rtt = rtt;
-            } else {
-                self.rtt = self.rtt * 0.875 + rtt * 0.125;
+            if rtt_delay_ms.is_none() {
+                update_rtt_fn(&sent_packet, 0);
             }
 
-            match sent_packet.info {
+            // Save sent time
+            self.highest_send_time_of_acked_sends = self.highest_send_time_of_acked_sends.max(sent_packet.sent_at);
+
+            let largest_acked_packet = match sent_packet.info {
                 PacketSentInfo::ReliableMessages {
                     channel_id,
                     mut message_ids,
@@ -802,9 +943,8 @@ impl RenetClient {
                     }
                     message_ids.clear();
                     self.message_ids_cache.push(message_ids);
-                    if let Some(largest_acked_packet) = largest_acked_packet {
-                        Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
-                    }
+
+                    largest_acked_packet
                 }
                 PacketSentInfo::ReliableSliceMessage {
                     channel_id,
@@ -816,18 +956,14 @@ impl RenetClient {
                         panic!("Acked packet has invalid channel {channel_id}");
                     };
                     channel.process_slice_message_ack(message_id, slice_index);
-                    if let Some(largest_acked_packet) = largest_acked_packet {
-                        Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
-                    }
+
+                    largest_acked_packet
                 }
-                PacketSentInfo::Ack { largest_acked_packet } => {
-                    Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
-                }
-                PacketSentInfo::None { largest_acked_packet } => {
-                    if let Some(largest_acked_packet) = largest_acked_packet {
-                        Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
-                    }
-                }
+                PacketSentInfo::Unreliable { largest_acked_packet } => largest_acked_packet,
+            };
+
+            if let Some(largest_acked_packet) = largest_acked_packet {
+                Self::acked_largest(&mut self.pending_acks, largest_acked_packet);
             }
         }
 
@@ -842,7 +978,22 @@ impl RenetClient {
         assert!(sequence != u64::MAX);
         if self.pending_acks.is_empty() {
             self.pending_acks.push(sequence..sequence + 1);
+            self.rtt_delay_ref = None;
             return;
+        }
+
+        // Update rtt delay reference if we are adding a new highest sequence.
+        // We don't set the ref to None since there may be acks that were delayed. We want
+        // the paired client to only look at the highest ack it receives after this point for updating rtt.
+        // For example, this could be an unreliable message that showed up halfway through the keepalive timer.
+        // When the next keepalive packet is sent out, only 'half the timeout' delay would have been artificially
+        // added to the round trip for this packet. Whereas an ambiguous amount of time may have been delayed for
+        // other acks sent at the same time (and it's not efficient to store delays for every single ack).
+        if let Some(rtt_delay_ref) = &mut self.rtt_delay_ref {
+            let last = self.pending_acks.last().unwrap();
+            if sequence >= last.end {
+                *rtt_delay_ref = self.current_time;
+            }
         }
 
         // Try to fit the sequence in an existing range
@@ -910,6 +1061,17 @@ impl RenetClient {
 
             return;
         }
+    }
+
+    fn get_next_keepalive(&self) -> Duration {
+        let sent_ack_delta = self.current_time.saturating_sub(self.highest_send_time_of_acked_sends);
+        let timeout = if sent_ack_delta >= self.ack_config.failing_connection_timeout {
+            self.ack_config.keepalive_timeout_fast
+        } else {
+            self.ack_config.keepalive_timeout
+        };
+
+        self.current_time.saturating_add(timeout)
     }
 
     pub(crate) fn disconnect_with_reason(&mut self, reason: DisconnectReason) {
@@ -980,16 +1142,36 @@ mod tests {
     #[test]
     fn discard_old_packets() {
         let mut connection = RenetClient::new(ConnectionConfig::test(), false);
-        let message: Bytes = vec![5; 5].into();
-        connection.send_message(0, message);
 
+        // - 0s: KeepAlive
         connection.get_packets_to_send();
         assert_eq!(connection.sent_packets.len(), 1);
 
+        // - 0s: KeepAlive
+        // - 0s: message (unreliable)
+        let message: Bytes = vec![5; 5].into();
+        connection.send_message(DefaultChannel::Unreliable, message);
+        connection.get_packets_to_send();
+        assert_eq!(connection.sent_packets.len(), 2);
+
+        // - 0s: KeepAlive
+        // - 0s: message (unreliable)
+        // - 1s: KeepAlive
         connection.update(Duration::from_secs(1));
+        connection.get_packets_to_send();
+        assert_eq!(connection.sent_packets.len(), 3);
+
+        // - 5s: KeepAlive
+        connection.update(Duration::from_secs(4));
+        connection.get_packets_to_send();
         assert_eq!(connection.sent_packets.len(), 1);
 
-        connection.update(Duration::from_secs(4));
-        assert_eq!(connection.sent_packets.len(), 0);
+        // - 5s: KeepAlive
+        // - 6s: message (unreliable) (this acts as a keepalive so we don't get an extra packet)
+        connection.update(Duration::from_secs(1));
+        let message: Bytes = vec![10; 10].into();
+        connection.send_message(DefaultChannel::Unreliable, message);
+        connection.get_packets_to_send();
+        assert_eq!(connection.sent_packets.len(), 2);
     }
 }

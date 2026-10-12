@@ -7,6 +7,8 @@
 - Rework ack packet serialization for better deserialization handling. **Breaking change to packet serialization**
 - Inline ack ranges when possible to cut down on packet count. **Breaking change to packet serialization**
 - Security: Validate packet sequences on deserialization.
+- Rework ack protocol to use a burst mechanism and keepalive timeout so acks don't run in an unlimited loop. `AckConfig` added to `ConnectionConfig` for `RenetServer` and `RenetClient`.
+- Rename `Ack` packet type to `KeepAlive` packet type. These are now sent even if there are no pending acks to initiate keepalive loops when clients connect or when all sent packets expire.
 
 
 ## 0.17.1 - 10/05/26
