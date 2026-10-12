@@ -21,7 +21,7 @@ pub(crate) const MAX_ACK_RANGES: u64 = 63;
 pub(crate) const MAX_PAYLOAD_BYTES: usize = 1300;
 
 /// For stale sent packets that weren't acked.
-const DISCARD_AFTER: Duration = Duration::from_secs(2);
+const DISCARD_AFTER: Duration = Duration::from_secs(3);
 
 /// Configuration for a renet connection and its channels.
 #[derive(Debug, Clone)]
