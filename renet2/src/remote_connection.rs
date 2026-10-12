@@ -92,9 +92,12 @@ impl ConnectionConfig {
 pub struct AckConfig {
     /// The timeout for keepalive packets.
     /// If no packets were sent in the last `keepalive_timeout`, then a KeepAlive packet will be sent.
+    ///
     /// Default: 300ms
     pub keepalive_timeout: Duration,
-    /// The timeout for fast keepalives triggered by [`Self::failing_connection_timeout`].
+    /// The timeout for fast keepalives triggered by [`Self::failing_connection_timeout`]. Should be shorter than
+    /// `self.keepalive_timeout`.
+    ///
     /// Default: 100ms
     pub keepalive_timeout_fast: Duration,
     /// If the last ack we received from a paired client points to a message we sent that is more than
@@ -103,14 +106,27 @@ pub struct AckConfig {
     /// being dropped but the paired client's packets are, then our acks will point to old packets of the paired client
     /// so the paired client will also trigger this timeout and both directions of the connection will speed up to
     /// overcome the degraded conditions.
+    ///
     /// Default: 1.2s
     pub failing_connection_timeout: Duration,
+    /// The timeout for ack packets.
+    /// If no acks were sent in the last `last_sent_timeout`, then a KeepAlive
+    /// packet will be sent with acks. This is primarily needed to maintain rtt calculations, as a fallback if
+    /// ack burst fails, and for cleanup of unacked sends.
+    /// - Acks may be sent even if there were recent packets sent by us (this is separate from the keepalive condition).
+    /// - Will override `self.keepalive_timeout` if this is lower.
+    /// - Set it to a high number if you don't care about rtt or want to use reliable messages. Note that unacked sends
+    ///   clean themselves up after a delay, but this timeout can reduce how much is tracked locally.
+    ///
+    /// Default: 300ms
+    pub ack_send_timeout: Duration,
     /// The number of times acks should be sent after receiving a reliable message from the paired client before
     /// falling back to the keepalive cadence (keepalives include pending acks but are delayed). Tradeoff between packet
     /// loss and bandwidth. Note if the server tick rate is fairly slow (e.g. 10hz) then even with a small ack burst
     /// the paired client will resend reliable messages before you get through the burst count (assuming 1 ack sent
     /// per tick, which will be the case if no messages are sent out that acks can piggy-back on). Which will reset
     /// the burst count if packets aren't lost. So a high `ack_burst` won't be that useful.
+    ///
     /// Default: 5
     pub ack_burst: u16,
 }
@@ -121,6 +137,7 @@ impl Default for AckConfig {
             keepalive_timeout: Duration::from_millis(300),
             keepalive_timeout_fast: Duration::from_millis(100),
             failing_connection_timeout: Duration::from_millis(1200),
+            ack_send_timeout: Duration::from_millis(300),
             ack_burst: 5,
         }
     }
@@ -206,6 +223,7 @@ pub struct RenetClient {
     // An approximation of current time, it will drift. Should not be exposed to the public API.
     current_time: Duration,
     next_keepalive: Duration,
+    next_ack: Duration,
     ack_burst_count: u16,
     // Highest send time of all packets we sent that were acked by the paired client.
     highest_send_time_of_acked_sends: Duration,
@@ -342,6 +360,7 @@ impl RenetClient {
             current_time: Duration::ZERO,
             // Causes a keepalive to be immediately sent.
             next_keepalive: Duration::ZERO,
+            next_ack: Duration::ZERO,
             ack_burst_count: 0,
             highest_send_time_of_acked_sends: Duration::ZERO,
             rtt_delay_ref: None,
@@ -559,7 +578,7 @@ impl RenetClient {
         }
 
         // Reset rtt delay
-        if self.sent_packets.is_empty() {
+        if self.pending_acks.is_empty() {
             self.rtt_delay_ref = None;
         }
     }
@@ -812,10 +831,10 @@ impl RenetClient {
         };
 
         // Get number of times to try to append acks to message packets.
-        // - Try to send them with a message at least once since it's much more efficient even if there is no burst. If
-        //   we send acks with a message then we don't send a keepalive packet even if there is burst remaining.
+        // - If we send acks with a message then we don't send a keepalive packet even if there is burst remaining.
         //   Burst favors one ack send per tick unless there are multiple messages to piggy-back on in a tick.
-        let message_max_acks = self.ack_burst_count.max(1);
+        let ack_expired = self.current_time >= self.next_ack;
+        let message_max_acks = self.ack_burst_count.max(if ack_expired { 1 } else { 0 });
         let mut acks_count_sent = 0;
         let mut messages_count_sent = 0;
 
@@ -853,11 +872,12 @@ impl RenetClient {
         //   is nonzero or keepalive is required.
         // - This keeps the connection alive even if no messages are sent on connect or if
         //   sent packets all expire so there are no acks to send.
-        let burst_needed = acks_count_sent == 0 && self.ack_burst_count > 0;
         let keepalive_expired = self.current_time >= self.next_keepalive;
+        let burst_needed = acks_count_sent == 0 && self.ack_burst_count > 0;
         let keepalive_needed = keepalive_expired && messages_count_sent == 0;
+        let ack_needed = ack_expired && acks_count_sent == 0 && has_pending_acks;
 
-        if burst_needed || keepalive_needed {
+        if burst_needed || keepalive_needed || ack_needed {
             let sequence = self.packet_sequence;
             self.packet_sequence += 1;
             let packet = Packet::KeepAlive { sequence };
@@ -870,14 +890,19 @@ impl RenetClient {
 
         // Update state
         self.ack_burst_count = self.ack_burst_count.saturating_sub(acks_count_sent);
+
+        if acks_count_sent > 0 {
+            self.next_ack = self.current_time.saturating_add(self.ack_config.ack_send_timeout);
+            self.rtt_delay_ref = None;
+        }
         if messages_count_sent > 0 {
             self.next_keepalive = self.get_next_keepalive();
-            if acks_count_sent > 0 {
-                self.rtt_delay_ref = None;
-            }
-        } else if self.rtt_delay_ref.is_none() && has_pending_acks {
+        }
+        if self.rtt_delay_ref.is_none() && has_pending_acks && acks_count_sent == 0 {
             // In this case we are at the *start* of an ack delay. The delay will be from this point in the tick
             // where delay started to the same point where the delay ends (which is when we send a packet with acks).
+            // If acks were sent in the previous tick but got lost, we treat the gap between this tick
+            // and last tick as part of the rtt to account for that loss.
             self.rtt_delay_ref = Some(self.current_time);
         }
         self.stats.sent_packets(self.payloads_ser.len() as u64, bytes_sent);
