@@ -81,7 +81,7 @@ impl AckRanges {
     /// Ranges are prefixed with the number of ranges that are recorded.
     /// - This is *not* -1 because we can append acks to any packet type and need a way to detect if there are
     ///   acks recorded.
-    /// - Range count is <= 64, which means we have 2 extra bits.
+    /// - Range count is <= 63, which means we have 2 extra bits.
     ///   - Bits 0-5: range count
     ///   - Bit 6: indicates if an rtt delay is appended
     ///   - Bit 7: unused
@@ -101,7 +101,7 @@ impl AckRanges {
         let mut it = self.ack_ranges.iter();
 
         // Write the total number of ranges
-        const _: () = assert!(MAX_ACK_RANGES <= 64);
+        const _: () = assert!(MAX_ACK_RANGES <= 63);
         let mut count = it.len() as u8;
         if count as u64 > MAX_ACK_RANGES {
             return Err(SerializationError::InvalidAckRange);
@@ -273,7 +273,7 @@ impl AckRangesIterator {
         let mut b = octets::Octets::with_slice(&bytes);
         let mut num_ranges = b.get_u8()?;
         let mut has_rtt_delay = false;
-        if (num_ranges & AckRanges::RTT_DELAY_FLAG) > 0 {
+        if (num_ranges & AckRanges::RTT_DELAY_FLAG) == AckRanges::RTT_DELAY_FLAG {
             has_rtt_delay = true;
             num_ranges &= !AckRanges::RTT_DELAY_FLAG;
         }
@@ -327,7 +327,7 @@ impl AckRangesIterator {
         self.prev_end = 0;
     }
 
-    /// Does not call `self.reset` - will fail if delay was already read.
+    /// Does not call `self.reset`, will fail if delay was already read.
     pub fn rtt_delay_ms(&mut self) -> Result<Option<u64>, SerializationError> {
         if !self.has_rtt_delay {
             return Ok(None);
@@ -559,7 +559,6 @@ impl PacketPartialDeser {
 
     /// Reliable packets should be acked asap.
     /// Non-reliable packet acks may be delayed until the next keepalive.
-    #[allow(unused)]
     pub fn is_reliable(&self) -> bool {
         match self {
             Self::SmallReliable { .. } | Self::ReliableSlice { .. } => true,
