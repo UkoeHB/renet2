@@ -3,7 +3,7 @@ use crate::channel::unreliable::{ReceiveChannelUnreliable, SendChannelUnreliable
 use crate::channel::{ChannelConfig, DefaultChannel, SendType};
 use crate::connection_stats::ConnectionStats;
 use crate::error::DisconnectReason;
-use crate::packet::{AckRangesIterator, Packet, PacketAcks, PacketPartialDeser, Payload, SerializationError};
+use crate::packet::{AckRangesIterator, Packet, AckRanges, PacketPartialDeser, Payload, SerializationError};
 use crate::zero_reinit_buffer;
 use bytes::Bytes;
 use octets::OctetsMut;
@@ -14,6 +14,9 @@ use std::time::Duration;
 
 /// Limit to 64 pending ranges (note: this keeps ack packets under 1 kB and limits acks map iter cost)
 pub(crate) const MAX_ACK_RANGES: u64 = 64;
+
+/// Matches `NETCODE_MAX_PAYLOAD_BYTES`.
+pub(crate) const MAX_PAYLOAD_BYTES: usize = 1300;
 
 /// Configuration for a renet connection and its channels.
 #[derive(Debug, Clone)]
@@ -83,9 +86,9 @@ struct PacketSent {
     info: PacketSentInfo,
 }
 
-// When an ack packet is acknowledged,
-// We remove all Ack ranges below the largest_acked sent by it.
-// All packets may contain ack ranges.
+/// When an ack packet is acknowledged,
+/// we remove all Ack ranges below the largest_acked sent by it.
+/// All packets may contain ack ranges.
 #[derive(Debug, Clone)]
 enum PacketSentInfo {
     // No need to track info for unreliable messages
@@ -608,22 +611,21 @@ impl RenetClient {
 
         // Prep acks ranges for pasting into a packet
         let mut acks_buffer = self.payloads_cache.pop().unwrap_or_default();
-        const PACKET_SIZE: usize = 1400;
-        zero_reinit_buffer(&mut acks_buffer, PACKET_SIZE);
+        zero_reinit_buffer(&mut acks_buffer, MAX_PAYLOAD_BYTES);
         let mut largest_ack = 0;
         let acks_prep = !self.pending_acks.is_empty();
         if acks_prep {
             let mut ack_ranges = std::mem::take(&mut self.ack_ranges_reuse);
             ack_ranges.extend(self.pending_acks.iter().cloned());
-            let mut packet_acks = PacketAcks { ack_ranges };
+            let mut ranges = AckRanges { ack_ranges };
 
-            let last_range = packet_acks.ack_ranges.last().unwrap();
+            let last_range = ranges.ack_ranges.last().unwrap();
             largest_ack = last_range.end - 1;
 
             let mut oct = OctetsMut::with_slice(acks_buffer.as_mut_slice());
-            let len = packet_acks.to_bytes(&mut oct).map_err(DisconnectReason::PacketSerialization)?;
-            packet_acks.ack_ranges.clear();
-            self.ack_ranges_reuse = packet_acks.ack_ranges;
+            let len = ranges.to_bytes(&mut oct).map_err(DisconnectReason::PacketSerialization)?;
+            ranges.ack_ranges.clear();
+            self.ack_ranges_reuse = ranges.ack_ranges;
             acks_buffer.resize(len, 0); // should always be <= existing size
         }
         let mut acks_ser: Option<&[u8]> = if acks_prep { Some(&acks_buffer) } else { None };
@@ -636,7 +638,7 @@ impl RenetClient {
         let mut apply_packet_fn = |packet: &Packet, acks_ser: &mut Option<&[u8]>| -> Result<bool, DisconnectReason> {
             // Serialize packet
             let mut buffer = self.payloads_cache.pop().unwrap_or_default();
-            zero_reinit_buffer(&mut buffer, PACKET_SIZE);
+            zero_reinit_buffer(&mut buffer, MAX_PAYLOAD_BYTES);
             let mut oct = OctetsMut::with_slice(buffer.as_mut_slice());
             let (len, acks_written) = packet
                 .to_bytes(&mut oct, *acks_ser)
@@ -832,7 +834,12 @@ impl RenetClient {
         Ok(())
     }
 
+    /// Invariants:
+    /// - All ranges are non-empty
+    /// - All ranges are separated by a gap of at least 1
+    /// - No sequence equals u64::MAX
     fn add_pending_ack(&mut self, sequence: u64) {
+        assert!(sequence != u64::MAX);
         if self.pending_acks.is_empty() {
             self.pending_acks.push(sequence..sequence + 1);
             return;
