@@ -3,7 +3,7 @@ use crate::channel::unreliable::{ReceiveChannelUnreliable, SendChannelUnreliable
 use crate::channel::{ChannelConfig, DefaultChannel, SendType};
 use crate::connection_stats::ConnectionStats;
 use crate::error::DisconnectReason;
-use crate::packet::{AckRangesIterator, Packet, AckRanges, PacketPartialDeser, Payload, SerializationError};
+use crate::packet::{AckRanges, AckRangesIterator, Packet, PacketPartialDeser, Payload, SerializationError};
 use crate::zero_reinit_buffer;
 use bytes::Bytes;
 use octets::OctetsMut;
