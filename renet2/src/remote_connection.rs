@@ -99,7 +99,7 @@ pub struct AckConfig {
     /// - Set it to a high number if you don't care about rtt or want to use reliable messages. Note that unacked sends
     ///   clean themselves up after a delay, but this timeout can reduce how much is tracked locally.
     ///
-    /// Default: 500ms
+    /// Default: 250ms
     pub ack_send_timeout: Duration,
     /// The number of times acks should be sent after receiving a reliable message from the paired client before
     /// falling back to the base ack send cadence. Tradeoff between packet
@@ -115,7 +115,9 @@ pub struct AckConfig {
 impl Default for AckConfig {
     fn default() -> Self {
         Self {
-            ack_send_timeout: Duration::from_millis(500),
+            // See `NETCODE_SEND_RATE`. Matching the keepalive timer in renetcode2 reduces redundant keepalive packets from the netcode
+            // layer.
+            ack_send_timeout: Duration::from_millis(250),
             ack_burst: 5,
         }
     }
