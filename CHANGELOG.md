@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## WIP
+## 0.18.0 - 10/12/26
 
 - Minimize temp allocations in `renet2::RenetClient` and `renet2::channel` by reusing buffers.
 - Refactor packet handling in `renet2::RenetClient` to avoid allocating when consuming packets.
