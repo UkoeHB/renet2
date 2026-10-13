@@ -648,14 +648,15 @@ impl RenetClient {
             PacketPartialDeser::Ack { ack_ranges, .. } => ack_ranges,
         };
 
+        // Do this before handling ack ranges in case the paired client duplicates a sequence that we already acked
+        // or uses sequences out of order. If `ack_ranges` points to sent packets that acked paired client packets *ahead* of
+        // this packet's sequence, then this sequence will be cleared from `self.pending_acks`.
+        self.add_pending_ack(sequence);
+
         // Handle acks
         if let Some(ack_ranges) = ack_ranges {
             self.handle_incoming_ack_ranges(ack_ranges)?;
         }
-
-        // Do this after handling ack ranges in case the paired client duplicates a sequence that we already acked
-        // or uses sequences out of order.
-        self.add_pending_ack(sequence);
 
         Ok(())
     }

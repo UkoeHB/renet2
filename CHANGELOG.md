@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## WIP
+
+- Better handling of replay attacks in `renet2`.
+
+
 ## 0.19.0 - 10/12/26
 
 - Update to `bevy` v0.20.
