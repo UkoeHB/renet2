@@ -44,18 +44,18 @@ pub enum Packet {
         channel_id: u8,
         slice: Slice,
     },
-    KeepAlive {
+    Ack {
         sequence: u64,
     },
 }
 
 /// Acks are saved in multiple ranges, all values in the ranges are considered acked.
 ///
-/// Includes an rtt delay if these acks will be sent in a packet that comes after a keepalive timer delay.
+/// Includes an rtt delay if these acks will be sent in a packet that comes after a timer delay.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct AckRanges {
     pub ack_ranges: Vec<Range<u64>>,
-    /// Delay subtracted from rtt to account for forced delay from keepalive timer.
+    /// Delay subtracted from rtt to account for forced delay from timer.
     /// Defined relative to the last sequence in the attached acks.
     pub rtt_delay_ms: Option<u64>,
 }
@@ -384,7 +384,7 @@ pub enum PacketPartialDeser {
         slice: Slice,
         ack_ranges: Option<AckRangesIterator>,
     },
-    KeepAlive {
+    Ack {
         sequence: u64,
         ack_ranges: Option<AckRangesIterator>,
     },
@@ -434,17 +434,17 @@ impl Packet {
             | Self::SmallUnreliable { sequence, .. }
             | Self::UnreliableSlice { sequence, .. }
             | Self::ReliableSlice { sequence, .. }
-            | Self::KeepAlive { sequence, .. } => *sequence,
+            | Self::Ack { sequence, .. } => *sequence,
         }
     }
 
     /// Reliable packets should be acked asap.
-    /// Non-reliable packet acks may be delayed until the next keepalive.
+    /// Non-reliable packet acks may be delayed until the next ack timer.
     #[allow(unused)]
     pub fn is_reliable(&self) -> bool {
         match self {
             Self::SmallReliable { .. } | Self::ReliableSlice { .. } => true,
-            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::KeepAlive { .. } => false,
+            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::Ack { .. } => false,
         }
     }
 
@@ -516,7 +516,7 @@ impl Packet {
                 b.put_bytes(&slice.payload)?;
                 Self::try_write_acks(b, acks)?
             }
-            Self::KeepAlive { sequence } => {
+            Self::Ack { sequence } => {
                 b.put_u8(4)?;
                 b.put_varint(*sequence)?;
                 Self::try_write_acks(b, acks)?
@@ -553,16 +553,16 @@ impl PacketPartialDeser {
             | Self::SmallUnreliable { sequence, .. }
             | Self::UnreliableSlice { sequence, .. }
             | Self::ReliableSlice { sequence, .. }
-            | Self::KeepAlive { sequence, .. } => *sequence,
+            | Self::Ack { sequence, .. } => *sequence,
         }
     }
 
     /// Reliable packets should be acked asap.
-    /// Non-reliable packet acks may be delayed until the next keepalive.
+    /// Non-reliable packet acks may be delayed until the next ack timer.
     pub fn is_reliable(&self) -> bool {
         match self {
             Self::SmallReliable { .. } | Self::ReliableSlice { .. } => true,
-            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::KeepAlive { .. } => false,
+            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::Ack { .. } => false,
         }
     }
 
@@ -677,11 +677,11 @@ impl PacketPartialDeser {
                 })
             }
             4 => {
-                // KeepAlive
+                // Ack
                 let sequence = Self::deserialize_sequence(&mut b)?;
                 let pos = b.off();
                 let ack_ranges = AckRangesIterator::try_deserialize(bytes.slice(pos..))?;
-                Ok(Self::KeepAlive { sequence, ack_ranges })
+                Ok(Self::Ack { sequence, ack_ranges })
             }
             _ => Err(SerializationError::InvalidPacketType),
         }
@@ -764,9 +764,9 @@ impl PacketPartialDeser {
                     maybe_acks,
                 ))
             }
-            Self::KeepAlive { sequence, ack_ranges } => {
+            Self::Ack { sequence, ack_ranges } => {
                 let maybe_acks = Self::get_maybe_acks(ack_ranges)?;
-                Ok((Packet::KeepAlive { sequence }, maybe_acks))
+                Ok((Packet::Ack { sequence }, maybe_acks))
             }
         }
     }
@@ -987,10 +987,10 @@ mod tests {
     }
 
     #[test]
-    fn serialize_keepalive_packet() {
+    fn serialize_ack_packet() {
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
-        let packet = Packet::KeepAlive { sequence: 222 };
+        let packet = Packet::Ack { sequence: 222 };
 
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         let (_, acks_written) = packet.to_bytes(&mut b, None).unwrap();
@@ -1002,11 +1002,11 @@ mod tests {
     }
 
     #[test]
-    fn serialize_keepalive_packet_with_ack() {
+    fn serialize_ack_packet_with_ack() {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
-        let packet = Packet::KeepAlive { sequence: 0 };
+        let packet = Packet::Ack { sequence: 0 };
         let acks = AckRanges {
             ack_ranges: vec![3..7, 10..20, 30..100],
             rtt_delay_ms: None,
@@ -1025,11 +1025,11 @@ mod tests {
     }
 
     #[test]
-    fn serialize_keepalive_packet_with_delay() {
+    fn serialize_ack_packet_with_delay() {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
-        let packet = Packet::KeepAlive { sequence: 20 };
+        let packet = Packet::Ack { sequence: 20 };
         let acks = AckRanges {
             ack_ranges: vec![3..7, 10..20, 30..100],
             rtt_delay_ms: Some(555),

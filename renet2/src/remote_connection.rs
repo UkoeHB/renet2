@@ -90,38 +90,19 @@ impl ConnectionConfig {
 
 #[derive(Debug, Clone)]
 pub struct AckConfig {
-    /// The timeout for keepalive packets.
-    /// If no packets were sent in the last `keepalive_timeout`, then a KeepAlive packet will be sent.
-    ///
-    /// Default: 300ms
-    pub keepalive_timeout: Duration,
-    /// The timeout for fast keepalives triggered by [`Self::failing_connection_timeout`]. Should be shorter than
-    /// `self.keepalive_timeout`.
-    ///
-    /// Default: 100ms
-    pub keepalive_timeout_fast: Duration,
-    /// If the last ack we received from a paired client points to a message we sent that is more than
-    /// `failing_connection_timeout` old, we temporarily speed up the keepalive cadence to [`Self::keepalive_timeout_fast`]
-    /// in case the network connection has become choppy and our packets are being dropped. If our packets are *not*
-    /// being dropped but the paired client's packets are, then our acks will point to old packets of the paired client
-    /// so the paired client will also trigger this timeout and both directions of the connection will speed up to
-    /// overcome the degraded conditions.
-    ///
-    /// Default: 1.2s
-    pub failing_connection_timeout: Duration,
     /// The timeout for ack packets.
-    /// If no acks were sent in the last `last_sent_timeout`, then a KeepAlive
+    /// If no acks were sent in the last `last_sent_timeout`, then a
     /// packet will be sent with acks. This is primarily needed to maintain rtt calculations, as a fallback if
     /// ack burst fails, and for cleanup of unacked sends.
-    /// - Acks may be sent even if there were recent packets sent by us (this is separate from the keepalive condition).
-    /// - Will override `self.keepalive_timeout` if this is lower.
+    /// - Acks may be sent even if there were recent packets sent by us (this is not a keepalive condition).
+    /// - Will override the `renetcode2` keepalive if this is faster (see `NETCODE_SEND_RATE`).
     /// - Set it to a high number if you don't care about rtt or want to use reliable messages. Note that unacked sends
     ///   clean themselves up after a delay, but this timeout can reduce how much is tracked locally.
     ///
-    /// Default: 300ms
+    /// Default: 500ms
     pub ack_send_timeout: Duration,
     /// The number of times acks should be sent after receiving a reliable message from the paired client before
-    /// falling back to the keepalive cadence (keepalives include pending acks but are delayed). Tradeoff between packet
+    /// falling back to the base ack send cadence. Tradeoff between packet
     /// loss and bandwidth. Note if the server tick rate is fairly slow (e.g. 10hz) then even with a small ack burst
     /// the paired client will resend reliable messages before you get through the burst count (assuming 1 ack sent
     /// per tick, which will be the case if no messages are sent out that acks can piggy-back on). Which will reset
@@ -134,10 +115,7 @@ pub struct AckConfig {
 impl Default for AckConfig {
     fn default() -> Self {
         Self {
-            keepalive_timeout: Duration::from_millis(300),
-            keepalive_timeout_fast: Duration::from_millis(100),
-            failing_connection_timeout: Duration::from_millis(1200),
-            ack_send_timeout: Duration::from_millis(300),
+            ack_send_timeout: Duration::from_millis(500),
             ack_burst: 5,
         }
     }
@@ -222,11 +200,8 @@ pub struct RenetClient {
     packet_sequence: u64,
     // An approximation of current time, it will drift. Should not be exposed to the public API.
     current_time: Duration,
-    next_keepalive: Duration,
     next_ack: Duration,
     ack_burst_count: u16,
-    // Highest send time of all packets we sent that were acked by the paired client.
-    highest_send_time_of_acked_sends: Duration,
     rtt_delay_ref: Option<Duration>,
     sent_packets: BTreeMap<u64, PacketSent>,
     pending_acks: Vec<Range<u64>>,
@@ -358,11 +333,8 @@ impl RenetClient {
             ack_config,
             packet_sequence: 0,
             current_time: Duration::ZERO,
-            // Causes a keepalive to be immediately sent.
-            next_keepalive: Duration::ZERO,
             next_ack: Duration::ZERO,
             ack_burst_count: 0,
-            highest_send_time_of_acked_sends: Duration::ZERO,
             rtt_delay_ref: None,
             sent_packets: BTreeMap::new(),
             pending_acks: Vec::new(),
@@ -671,7 +643,7 @@ impl RenetClient {
 
                 ack_ranges
             }
-            PacketPartialDeser::KeepAlive { ack_ranges, .. } => ack_ranges,
+            PacketPartialDeser::Ack { ack_ranges, .. } => ack_ranges,
         };
 
         // Handle acks
@@ -816,7 +788,7 @@ impl RenetClient {
                         },
                     );
                 }
-                Packet::KeepAlive { sequence } => {
+                Packet::Ack { sequence } => {
                     self.sent_packets.insert(
                         *sequence,
                         PacketSent {
@@ -836,7 +808,6 @@ impl RenetClient {
         let ack_expired = self.current_time >= self.next_ack;
         let message_max_acks = self.ack_burst_count.max(if ack_expired { 1 } else { 0 });
         let mut acks_count_sent = 0;
-        let mut messages_count_sent = 0;
 
         // Get packets from each channel
         let mut available_bytes = self.available_bytes_per_tick;
@@ -850,7 +821,6 @@ impl RenetClient {
                         if apply_packet_fn(packet, acks_count_sent < message_max_acks)? {
                             acks_count_sent += 1;
                         }
-                        messages_count_sent += 1;
                     }
                 }
                 ChannelOrder::Unreliable(channel_id) => {
@@ -861,7 +831,6 @@ impl RenetClient {
                         if apply_packet_fn(packet, acks_count_sent < message_max_acks)? {
                             acks_count_sent += 1;
                         }
-                        messages_count_sent += 1;
                     }
                 }
             }
@@ -869,22 +838,17 @@ impl RenetClient {
 
         // Send an explicit ack message if acks still need to be sent
         // - We don't add an ack packet if we failed to append acks to a message unless burst count
-        //   is nonzero or keepalive is required.
-        // - This keeps the connection alive even if no messages are sent on connect or if
-        //   sent packets all expire so there are no acks to send.
-        let keepalive_expired = self.current_time >= self.next_keepalive;
-        let burst_needed = acks_count_sent == 0 && self.ack_burst_count > 0;
-        let keepalive_needed = keepalive_expired && messages_count_sent == 0;
+        //   is nonzero or acks are required.
+        let burst_needed = acks_count_sent == 0 && self.ack_burst_count > 0 && has_pending_acks;
         let ack_needed = ack_expired && acks_count_sent == 0 && has_pending_acks;
 
-        if burst_needed || keepalive_needed || ack_needed {
+        if burst_needed || ack_needed {
             let sequence = self.packet_sequence;
             self.packet_sequence += 1;
-            let packet = Packet::KeepAlive { sequence };
+            let packet = Packet::Ack { sequence };
             if apply_packet_fn(&packet, true)? {
                 acks_count_sent += 1;
             }
-            messages_count_sent += 1;
         }
         self.payloads_cache.push(acks_buffer);
 
@@ -894,9 +858,6 @@ impl RenetClient {
         if acks_count_sent > 0 {
             self.next_ack = self.current_time.saturating_add(self.ack_config.ack_send_timeout);
             self.rtt_delay_ref = None;
-        }
-        if messages_count_sent > 0 {
-            self.next_keepalive = self.get_next_keepalive();
         }
         if self.rtt_delay_ref.is_none() && has_pending_acks && acks_count_sent == 0 {
             // In this case we are at the *start* of an ack delay. The delay will be from this point in the tick
@@ -942,17 +903,14 @@ impl RenetClient {
             update_rtt_fn(self.sent_packets.get(self.u64_scratch.last().unwrap()).unwrap(), rtt_delay_ms);
         }
 
-        for packet_sequence in self.u64_scratch.iter().copied() {
-            let sent_packet = self.sent_packets.remove(&packet_sequence).unwrap();
+        for packet_sequence in self.u64_scratch.iter() {
+            let sent_packet = self.sent_packets.remove(packet_sequence).unwrap();
             self.stats.acked_packet(sent_packet.sent_at, self.current_time);
 
             // Update rtt
             if rtt_delay_ms.is_none() {
                 update_rtt_fn(&sent_packet, 0);
             }
-
-            // Save sent time
-            self.highest_send_time_of_acked_sends = self.highest_send_time_of_acked_sends.max(sent_packet.sent_at);
 
             let largest_acked_packet = match sent_packet.info {
                 PacketSentInfo::ReliableMessages {
@@ -1010,8 +968,8 @@ impl RenetClient {
         // Update rtt delay reference if we are adding a new highest sequence.
         // We don't set the ref to None since there may be acks that were delayed. We want
         // the paired client to only look at the highest ack it receives after this point for updating rtt.
-        // For example, this could be an unreliable message that showed up halfway through the keepalive timer.
-        // When the next keepalive packet is sent out, only 'half the timeout' delay would have been artificially
+        // For example, this could be an unreliable message that showed up halfway through the ack timer.
+        // When the next ack packet is sent out, only 'half the timeout' delay would have been artificially
         // added to the round trip for this packet. Whereas an ambiguous amount of time may have been delayed for
         // other acks sent at the same time (and it's not efficient to store delays for every single ack).
         if let Some(rtt_delay_ref) = &mut self.rtt_delay_ref {
@@ -1088,17 +1046,6 @@ impl RenetClient {
         }
     }
 
-    fn get_next_keepalive(&self) -> Duration {
-        let sent_ack_delta = self.current_time.saturating_sub(self.highest_send_time_of_acked_sends);
-        let timeout = if sent_ack_delta >= self.ack_config.failing_connection_timeout {
-            self.ack_config.keepalive_timeout_fast
-        } else {
-            self.ack_config.keepalive_timeout
-        };
-
-        self.current_time.saturating_add(timeout)
-    }
-
     pub(crate) fn disconnect_with_reason(&mut self, reason: DisconnectReason) {
         if !self.is_disconnected() {
             self.connection_status = RenetConnectionStatus::Disconnected { reason };
@@ -1168,35 +1115,24 @@ mod tests {
     fn discard_old_packets() {
         let mut connection = RenetClient::new(ConnectionConfig::test(), false);
 
-        // - 0s: KeepAlive
+        // - nothing
         connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 1);
+        assert_eq!(connection.sent_packets.len(), 0);
 
-        // - 0s: KeepAlive
         // - 0s: message (unreliable)
         let message: Bytes = vec![5; 5].into();
         connection.send_message(DefaultChannel::Unreliable, message);
         connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 2);
+        assert_eq!(connection.sent_packets.len(), 1);
 
-        // - 0s: KeepAlive
         // - 0s: message (unreliable)
-        // - 1s: KeepAlive
         connection.update(Duration::from_secs(1));
-        connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 3);
-
-        // - 5s: KeepAlive
-        connection.update(Duration::from_secs(4));
         connection.get_packets_to_send();
         assert_eq!(connection.sent_packets.len(), 1);
 
-        // - 5s: KeepAlive
-        // - 6s: message (unreliable) (this acts as a keepalive so we don't get an extra packet)
-        connection.update(Duration::from_secs(1));
-        let message: Bytes = vec![10; 10].into();
-        connection.send_message(DefaultChannel::Unreliable, message);
+        // - nothing
+        connection.update(Duration::from_secs(4));
         connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 2);
+        assert_eq!(connection.sent_packets.len(), 0);
     }
 }

@@ -40,7 +40,7 @@ See `renetcode2/NETCODE_EXTENSIONS.md`.
 
 ### Improvements
 
-- Keepalive mechanism with ack bursts for reliable messages in place of the unlimited ack loop in `renet`. See the new field for `AckConfig` in `ConnectionConfig`. Also includes ack inlining in messages for more efficient packets.
+- Ack timeout mechanism with ack bursts for reliable messages in place of the unlimited ack loop in `renet`. See the new field for `AckConfig` in `ConnectionConfig`. Also includes ack inlining in messages for more efficient packets.
 
 
 ## Building docs
