@@ -121,7 +121,7 @@ fn disconnect_by_request(mut commands: Commands, mut disconnects: MessageReader<
     }
 }
 
-fn disconnect_client(remove: On<Remove, ConnectedClient>, server: Option<ResMut<RenetServer>>, clients: Query<&NetworkId>) {
+fn disconnect_client(remove: On<Remove<ConnectedClient>>, server: Option<ResMut<RenetServer>>, clients: Query<&NetworkId>) {
     if let Some(mut server) = server {
         debug!("disconnecting despawned client `{}`", remove.entity);
 

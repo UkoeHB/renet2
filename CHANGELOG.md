@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## 0.19.0 - 10/12/26
+
+- Update to `bevy` v0.20.
+- Update to `bevy_replicon` v0.45.
+
+
 ## 0.18.0 - 10/12/26
 
 - Minimize temp allocations in `renet2::RenetClient` and `renet2::channel` by reusing buffers.

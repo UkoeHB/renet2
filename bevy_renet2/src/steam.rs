@@ -66,7 +66,7 @@ impl SteamServerPlugin {
     }
 
     pub fn disconnect_on_removed(
-        _: On<Remove, (SteamServerTransport, RenetServer)>,
+        _: On<Remove<(SteamServerTransport, RenetServer)>>,
         transport: Option<ResMut<SteamServerTransport>>,
         server: Option<ResMut<RenetServer>>,
     ) {
@@ -122,7 +122,7 @@ impl SteamClientPlugin {
         }
     }
 
-    pub fn disconnect_on_removed(_: On<Remove, (SteamClientTransport, RenetClient)>, transport: Option<ResMut<SteamClientTransport>>) {
+    pub fn disconnect_on_removed(_: On<Remove<(SteamClientTransport, RenetClient)>>, transport: Option<ResMut<SteamClientTransport>>) {
         if let Some(mut transport) = transport {
             transport.disconnect();
         }

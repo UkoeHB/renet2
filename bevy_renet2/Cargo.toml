@@ -13,7 +13,7 @@ features = ["default", "serde"]
 rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
 
 [features]
-default = ["netcode"]
+default = ["netcode", "serde", "native_transport"]
 serde = ["renet2_netcode/serde"]
 steam = ["dep:renet2_steam", "dep:steamworks"]
 netcode = ["dep:renet2_netcode"]
@@ -28,12 +28,12 @@ ws-native-tls = ["renet2_netcode/ws-native-tls"]
 
 [[example]]
 name = "simple"
-required-features = ["serde", "netcode"]
+required-features = ["serde", "netcode", "native_transport"]
 
 [dependencies]
-bevy_app = { version = "0.19", default-features = false }
-bevy_ecs = { version = "0.19", default-features = false }
-bevy_time = { version = "0.19", default-features = false }
+bevy_app = { version = "0.20", default-features = false }
+bevy_ecs = { version = "0.20", default-features = false }
+bevy_time = { version = "0.20", default-features = false }
 renet2 = { path = "../renet2", version = "0.18.0", default-features = false, features = [
   "bevy",
 ] }
@@ -46,7 +46,7 @@ renet2_steam = { path = "../renet2_steam", version = "0.18.0", optional = true, 
 steamworks = { version = "0.13", optional = true }
 
 [dev-dependencies]
-bevy = { version = "0.19", default-features = false, features = [
+bevy = { version = "0.20", default-features = false, features = [
   "bevy_core_pipeline",
   "bevy_mesh",
   "bevy_render",

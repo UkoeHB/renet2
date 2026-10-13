@@ -72,7 +72,7 @@ impl NetcodeServerPlugin {
     }
 
     pub fn disconnect_on_removed(
-        _: On<Remove, (NetcodeServerTransport, RenetServer)>,
+        _: On<Remove<(NetcodeServerTransport, RenetServer)>>,
         transport: Option<ResMut<NetcodeServerTransport>>,
         server: Option<ResMut<RenetServer>>,
     ) {
@@ -141,7 +141,7 @@ impl NetcodeClientPlugin {
         }
     }
 
-    pub fn disconnect_on_removed(_: On<Remove, (NetcodeClientTransport, RenetClient)>, transport: Option<ResMut<NetcodeClientTransport>>) {
+    pub fn disconnect_on_removed(_: On<Remove<(NetcodeClientTransport, RenetClient)>>, transport: Option<ResMut<NetcodeClientTransport>>) {
         if let Some(mut transport) = transport {
             transport.disconnect();
         }

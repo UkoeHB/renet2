@@ -134,7 +134,7 @@ fn spawn_camera(mut commands: Commands) {
 }
 
 /// Spawns a new box whenever a client connects.
-fn spawn_clients(trigger: On<Add, ConnectedClient>, mut commands: Commands) {
+fn spawn_clients(trigger: On<Add<ConnectedClient>>, mut commands: Commands) {
     // Hash index to generate visually distinctive color.
     let mut hasher = DefaultHasher::new();
     trigger.event().entity.index().hash(&mut hasher);
@@ -157,7 +157,7 @@ fn spawn_clients(trigger: On<Add, ConnectedClient>, mut commands: Commands) {
 }
 
 /// Despawns a box whenever a client disconnects.
-fn despawn_clients(trigger: On<Remove, ConnectedClient>, mut commands: Commands, boxes: Query<(Entity, &BoxOwner)>) {
+fn despawn_clients(trigger: On<Remove<ConnectedClient>>, mut commands: Commands, boxes: Query<(Entity, &BoxOwner)>) {
     let (entity, _) = boxes
         .iter()
         .find(|(_, owner)| owner.0 == ClientId::Client(trigger.event().entity))
