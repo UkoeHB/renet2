@@ -9,7 +9,7 @@ use renet2::{ConnectionConfig, DefaultChannel, RenetClient};
 use renet2_netcode::{ClientAuthentication, ClientSocket, NativeSocket, NetcodeClientTransport};
 
 fn main() {
-    env_logger::init();
+    env_logger::builder().filter_level(log::LevelFilter::Info).init();
 
     // Wait for connection info.
     // - Using an entire `tokio` runtime for this is heavy-handed, but `reqwest` requires it.
@@ -53,12 +53,12 @@ fn main() {
 
         if client.is_connected() {
             match stdin_channel.try_recv() {
-                Ok(text) => client.send_message(DefaultChannel::Unreliable, text.as_bytes().to_vec()),
+                Ok(text) => client.send_message(DefaultChannel::ReliableUnordered, text.as_bytes().to_vec()),
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => panic!("Channel disconnected"),
             }
 
-            while let Some(text) = client.receive_message(DefaultChannel::Unreliable) {
+            while let Some(text) = client.receive_message(DefaultChannel::ReliableUnordered) {
                 let text = String::from_utf8(text.into()).unwrap();
                 println!("{}", text);
             }

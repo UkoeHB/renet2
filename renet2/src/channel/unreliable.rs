@@ -64,7 +64,7 @@ impl SendChannelUnreliable {
         self.max_memory_usage_bytes - self.memory_usage_bytes
     }
 
-    pub fn get_packets_to_send(&mut self, packet_sequence: &mut u64, available_bytes: &mut u64) -> &[Packet] {
+    pub fn get_packets_to_send(&mut self, available_bytes: &mut u64) -> &[Packet] {
         self.small_messages_cache
             .extend(self.packets_to_send.drain(..).filter_map(|p| match p {
                 Packet::SmallUnreliable { mut messages, .. } => {
@@ -108,11 +108,9 @@ impl SendChannelUnreliable {
                     };
 
                     self.packets_to_send.push(Packet::UnreliableSlice {
-                        sequence: *packet_sequence,
                         channel_id: self.channel_id,
                         slice,
                     });
-                    *packet_sequence += 1;
                 }
 
                 self.sliced_message_id += 1;
@@ -120,11 +118,9 @@ impl SendChannelUnreliable {
                 let serialized_size = message.len() + octets::varint_len(message.len() as u64);
                 if small_messages_bytes + serialized_size > SLICE_SIZE {
                     self.packets_to_send.push(Packet::SmallUnreliable {
-                        sequence: *packet_sequence,
                         channel_id: self.channel_id,
                         messages: std::mem::replace(&mut small_messages, self.small_messages_cache.pop().unwrap_or_default()),
                     });
-                    *packet_sequence += 1;
                     small_messages_bytes = 0;
                 }
 
@@ -141,11 +137,9 @@ impl SendChannelUnreliable {
         // Generate final packet for remaining small messages
         if !small_messages.is_empty() {
             self.packets_to_send.push(Packet::SmallUnreliable {
-                sequence: *packet_sequence,
                 channel_id: self.channel_id,
                 messages: std::mem::take(&mut small_messages),
             });
-            *packet_sequence += 1;
         } else if small_messages.capacity() > 0 && self.small_messages_cache.len() < 1_000 {
             self.small_messages_cache.push(small_messages);
         }
@@ -274,7 +268,6 @@ mod tests {
     fn small_packet() {
         let max_memory: usize = 10000;
         let mut available_bytes = u64::MAX;
-        let mut sequence: u64 = 0;
         let mut recv = ReceiveChannelUnreliable::new(0, max_memory);
         let mut send = SendChannelUnreliable::new(0, max_memory, false);
 
@@ -284,7 +277,7 @@ mod tests {
         send.send_message(message1.clone().into());
         send.send_message(message2.clone().into());
 
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         for packet in packets {
             let Packet::SmallUnreliable { messages, .. } = packet else {
                 unreachable!();
@@ -301,7 +294,7 @@ mod tests {
         assert_eq!(message1, new_message1);
         assert_eq!(message2, new_message2);
 
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert!(packets.is_empty());
     }
 
@@ -309,7 +302,6 @@ mod tests {
     fn slice_packet() {
         let max_memory: usize = 10000;
         let mut available_bytes = u64::MAX;
-        let mut sequence: u64 = 0;
         let current_time = Duration::ZERO;
         let mut recv = ReceiveChannelUnreliable::new(0, max_memory);
         let mut send = SendChannelUnreliable::new(0, max_memory, false);
@@ -318,7 +310,7 @@ mod tests {
 
         send.send_message(message.clone().into());
 
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         for packet in packets {
             let Packet::UnreliableSlice { slice, .. } = packet else {
                 unreachable!();
@@ -331,13 +323,12 @@ mod tests {
 
         assert_eq!(message, new_message);
 
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert!(packets.is_empty());
     }
 
     #[test]
     fn max_memory() {
-        let mut sequence: u64 = 0;
         let mut available_bytes = u64::MAX;
         let mut recv = ReceiveChannelUnreliable::new(0, 50);
         let mut send = SendChannelUnreliable::new(0, 40, false);
@@ -347,7 +338,7 @@ mod tests {
         send.send_message(message.clone().into());
         send.send_message(message.into());
 
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         for packet in packets {
             let Packet::SmallUnreliable { messages, .. } = packet else {
                 unreachable!();
@@ -366,7 +357,6 @@ mod tests {
 
     #[test]
     fn available_bytes() {
-        let mut sequence: u64 = 0;
         let mut send = SendChannelUnreliable::new(0, usize::MAX, false);
 
         let message: Bytes = vec![0u8; 100].into();
@@ -374,12 +364,12 @@ mod tests {
 
         // No available bytes
         let mut available_bytes: u64 = 50;
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert_eq!(packets.len(), 0);
 
         // Available space but message was dropped
         let mut available_bytes: u64 = u64::MAX;
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert_eq!(packets.len(), 0);
 
         send.send_message(message.clone());
@@ -387,18 +377,17 @@ mod tests {
 
         // Space for 1 message
         let mut available_bytes: u64 = 100;
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert_eq!(packets.len(), 1);
 
         // Second message was dropped
         let mut available_bytes: u64 = u64::MAX;
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert_eq!(packets.len(), 0);
     }
 
     #[test]
     fn small_packet_max_size() {
-        let mut sequence: u64 = 0;
         let mut available_bytes = u64::MAX;
         let mut send = SendChannelUnreliable::new(0, usize::MAX, false);
 
@@ -410,7 +399,7 @@ mod tests {
             send.send_message(message.clone());
         }
 
-        let packets = send.get_packets_to_send(&mut sequence, &mut available_bytes);
+        let packets = send.get_packets_to_send(&mut available_bytes);
         assert_eq!(packets.len(), 2);
         let mut buffer = [0u8; 1400];
         for packet in packets {

@@ -96,7 +96,7 @@ impl ChatApplication {
         self.time_last_update = current_time;
         let _ = self.transport_client.update(delta, &mut self.renet_client);
 
-        if let Some(message) = self.renet_client.receive_message(DefaultChannel::Unreliable) {
+        if let Some(message) = self.renet_client.receive_message(DefaultChannel::ReliableUnordered) {
             let message = String::from_utf8(message.into()).unwrap();
             self.messages.push(message);
         };
@@ -115,7 +115,7 @@ impl ChatApplication {
 
     pub fn send_message(&mut self, message: &str) {
         self.renet_client
-            .send_message(DefaultChannel::Unreliable, message.as_bytes().to_vec());
+            .send_message(DefaultChannel::ReliableUnordered, message.as_bytes().to_vec());
     }
 
     pub fn disconnect(mut self) {

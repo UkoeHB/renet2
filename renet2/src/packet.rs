@@ -26,43 +26,42 @@ pub enum Packet {
         channel_id: u8,
         messages: Vec<(u64, Bytes)>,
     },
-    // Small messages in a unreliable channel are aggregated and sent in this packet
+    // Small messages in an unreliable channel are aggregated and sent in this packet
     SmallUnreliable {
-        sequence: u64,
         channel_id: u8,
         messages: Vec<Bytes>,
     },
-    // A big unreliable message is sliced in multiples slice packets
-    UnreliableSlice {
-        sequence: u64,
-        channel_id: u8,
-        slice: Slice,
-    },
-    // A big reliable messages is sliced in multiples slice packets
+    // A big reliable messages is sliced in multiple slice packets
     ReliableSlice {
         sequence: u64,
         channel_id: u8,
         slice: Slice,
     },
-    Ack {
-        sequence: u64,
+    // A big unreliable message is sliced in multiple slice packets
+    UnreliableSlice {
+        channel_id: u8,
+        slice: Slice,
     },
+    Ack,
 }
 
 /// Acks are saved in multiple ranges, all values in the ranges are considered acked.
 ///
-/// Includes an rtt delay if these acks will be sent in a packet that comes after a timer delay.
+/// If these acks will be sent in a packet that comes after an ack timer delay:
+/// - Includes `sequence` for non-reliable packets
+/// - Includes `rtt_delay_ms` for all packets
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct AckRanges {
-    pub ack_ranges: Vec<Range<u64>>,
+    pub sequence: Option<u64>,
     /// Delay subtracted from rtt to account for forced delay from timer.
     /// Defined relative to the last sequence in the attached acks.
     pub rtt_delay_ms: Option<u64>,
+    pub ack_ranges: Vec<Range<u64>>,
 }
 
 impl AckRanges {
-    const RTT_DELAY_FLAG: u8 = 1 << 6;
-    //const _UNUSED_FLAG: u8 = 1 << 7;
+    const SEQUENCE_FLAG: u8 = 1 << 6;
+    const RTT_DELAY_FLAG: u8 = 1 << 7;
 
     /// Consider these ranges:
     /// [20010..20020   ,  20035..20040]
@@ -83,8 +82,8 @@ impl AckRanges {
     ///   acks recorded.
     /// - Range count is <= 63, which means we have 2 extra bits.
     ///   - Bits 0-5: range count
-    ///   - Bit 6: indicates if an rtt delay is appended
-    ///   - Bit 7: unused
+    ///   - Bit 6: indicates if a sequence is appended
+    ///   - Bit 7: indicates if an rtt delay is appended
     ///
     /// Since ranges and gaps should always be at least size 1, we store them with -1.
     ///
@@ -102,14 +101,27 @@ impl AckRanges {
 
         // Write the total number of ranges
         const _: () = assert!(MAX_ACK_RANGES <= 63);
-        let mut count = it.len() as u8;
-        if count as u64 > MAX_ACK_RANGES {
+        if it.len() as u64 > MAX_ACK_RANGES {
             return Err(SerializationError::InvalidAckRange);
+        }
+        let mut count = it.len() as u8;
+        if self.sequence.is_some() {
+            count |= Self::SEQUENCE_FLAG;
         }
         if self.rtt_delay_ms.is_some() {
             count |= Self::RTT_DELAY_FLAG;
         }
         b.put_u8(count)?;
+
+        // Add sequence
+        if let Some(sequence) = self.sequence {
+            b.put_varint(sequence)?;
+        }
+
+        // Add rtt delay
+        if let Some(rtt_delay_ms) = self.rtt_delay_ms {
+            b.put_varint(rtt_delay_ms)?;
+        }
 
         // Extract the first range (first in the iterator)
         let first = it.next().unwrap();
@@ -135,11 +147,6 @@ impl AckRanges {
             b.put_varint(range_size - 1)?;
 
             previous_range_end = range.end;
-        }
-
-        // Add rtt delay at the end
-        if let Some(rtt_delay_ms) = self.rtt_delay_ms {
-            b.put_varint(rtt_delay_ms)?;
         }
 
         Ok(before - b.cap())
@@ -239,10 +246,11 @@ impl SmallUnreliableIterator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AckRangesIterator {
     len: u64,
-    has_rtt_delay: bool,
+    pub sequence: Option<u64>,
+    pub rtt_delay_ms: Option<u64>,
     first_range: Range<u64>,
     current_idx: u64,
     bytes: Bytes,
@@ -251,10 +259,11 @@ pub struct AckRangesIterator {
 }
 
 impl AckRangesIterator {
-    pub fn new(len: u64, first_range: Range<u64>, bytes: Bytes, has_rtt_delay: bool) -> Self {
+    pub fn new(len: u64, sequence: Option<u64>, rtt_delay_ms: Option<u64>, first_range: Range<u64>, bytes: Bytes) -> Self {
         Self {
             len,
-            has_rtt_delay,
+            sequence,
+            rtt_delay_ms,
             first_range,
             current_idx: 0,
             bytes,
@@ -272,16 +281,22 @@ impl AckRangesIterator {
         }
         let mut b = octets::Octets::with_slice(&bytes);
         let mut num_ranges = b.get_u8()?;
-        let mut has_rtt_delay = false;
-        if (num_ranges & AckRanges::RTT_DELAY_FLAG) == AckRanges::RTT_DELAY_FLAG {
-            has_rtt_delay = true;
-            num_ranges &= !AckRanges::RTT_DELAY_FLAG;
-        }
+        let has_sequence = (num_ranges & AckRanges::SEQUENCE_FLAG) == AckRanges::SEQUENCE_FLAG;
+        let has_rtt_delay = (num_ranges & AckRanges::RTT_DELAY_FLAG) == AckRanges::RTT_DELAY_FLAG;
+
+        num_ranges &= !(AckRanges::SEQUENCE_FLAG | AckRanges::RTT_DELAY_FLAG);
         if num_ranges == 0 {
-            return Ok(None);
+            return match has_sequence || has_rtt_delay {
+                true => Err(SerializationError::InvalidAckRange),
+                false => Ok(None),
+            };
         } else if num_ranges as u64 > MAX_ACK_RANGES {
             return Err(SerializationError::InvalidAckRange);
         }
+
+        let sequence = if has_sequence { Some(deserialize_sequence(&mut b)?) } else { None };
+        let rtt_delay_ms = if has_rtt_delay { Some(b.get_varint()?) } else { None };
+
         let first_range_start = b.get_varint()?;
         let first_range_size = b.get_varint()?.checked_add(1).ok_or(SerializationError::InvalidAckRange)?;
         let first_range_end = first_range_start
@@ -290,9 +305,10 @@ impl AckRangesIterator {
 
         Ok(Some(Self::new(
             num_ranges as u64,
+            sequence,
+            rtt_delay_ms,
             first_range_start..first_range_end,
             bytes.slice(b.off()..),
-            has_rtt_delay,
         )))
     }
 
@@ -327,30 +343,15 @@ impl AckRangesIterator {
         self.prev_end = 0;
     }
 
-    /// Does not call `self.reset`, will fail if delay was already read.
-    pub fn rtt_delay_ms(&mut self) -> Result<Option<u64>, SerializationError> {
-        if !self.has_rtt_delay {
-            return Ok(None);
-        }
-        // Skip past ack ranges.
-        while self.next()?.is_some() {}
-
-        // Deserialize delay
-        let mut b = octets::Octets::with_slice(&self.bytes[self.bytes_pos..]);
-        let rtt_delay_ms = b.get_varint()?;
-        self.bytes_pos += b.off();
-
-        Ok(Some(rtt_delay_ms))
-    }
-
     pub fn make_acks(&mut self, acks: &mut AckRanges) -> Result<(), SerializationError> {
         self.reset();
+        acks.sequence = self.sequence;
+        acks.rtt_delay_ms = self.rtt_delay_ms;
         acks.ack_ranges.clear();
         acks.ack_ranges.reserve(self.len as usize);
         while let Some(range) = self.next()? {
             acks.ack_ranges.push(range);
         }
-        acks.rtt_delay_ms = self.rtt_delay_ms()?;
         Ok(())
     }
 }
@@ -367,16 +368,9 @@ pub enum PacketPartialDeser {
         messages: SmallReliableIterator,
     },
     SmallUnreliable {
-        sequence: u64,
         channel_id: u8,
         // Can obtain `Option<AckRangesIterator>` after iterating messages.
         messages: SmallUnreliableIterator,
-    },
-    UnreliableSlice {
-        sequence: u64,
-        channel_id: u8,
-        slice: Slice,
-        ack_ranges: Option<AckRangesIterator>,
     },
     ReliableSlice {
         sequence: u64,
@@ -384,8 +378,12 @@ pub enum PacketPartialDeser {
         slice: Slice,
         ack_ranges: Option<AckRangesIterator>,
     },
+    UnreliableSlice {
+        channel_id: u8,
+        slice: Slice,
+        ack_ranges: Option<AckRangesIterator>,
+    },
     Ack {
-        sequence: u64,
         ack_ranges: Option<AckRangesIterator>,
     },
 }
@@ -426,18 +424,6 @@ impl From<octets::BufferTooShortError> for SerializationError {
 }
 
 impl Packet {
-    /// Invariant after deserialize: `< u64::MAX`.
-    #[allow(unused)]
-    pub fn sequence(&self) -> u64 {
-        match self {
-            Self::SmallReliable { sequence, .. }
-            | Self::SmallUnreliable { sequence, .. }
-            | Self::UnreliableSlice { sequence, .. }
-            | Self::ReliableSlice { sequence, .. }
-            | Self::Ack { sequence, .. } => *sequence,
-        }
-    }
-
     /// Reliable packets should be acked asap.
     /// Non-reliable packet acks may be delayed until the next ack timer.
     #[allow(unused)]
@@ -471,13 +457,8 @@ impl Packet {
                 }
                 Self::try_write_acks(b, acks)?
             }
-            Self::SmallUnreliable {
-                sequence,
-                channel_id,
-                messages,
-            } => {
+            Self::SmallUnreliable { channel_id, messages } => {
                 b.put_u8(1)?;
-                b.put_varint(*sequence)?;
                 b.put_u8(*channel_id)?;
                 b.put_u16(messages.len() as u16)?;
                 for message in messages {
@@ -501,13 +482,8 @@ impl Packet {
                 b.put_bytes(&slice.payload)?;
                 Self::try_write_acks(b, acks)?
             }
-            Self::UnreliableSlice {
-                sequence,
-                channel_id,
-                slice,
-            } => {
+            Self::UnreliableSlice { channel_id, slice } => {
                 b.put_u8(3)?;
-                b.put_varint(*sequence)?;
                 b.put_u8(*channel_id)?;
                 b.put_varint(slice.message_id)?;
                 b.put_varint(slice.slice_index as u64)?;
@@ -516,9 +492,8 @@ impl Packet {
                 b.put_bytes(&slice.payload)?;
                 Self::try_write_acks(b, acks)?
             }
-            Self::Ack { sequence } => {
+            Self::Ack => {
                 b.put_u8(4)?;
-                b.put_varint(*sequence)?;
                 Self::try_write_acks(b, acks)?
             }
         };
@@ -546,17 +521,6 @@ impl Packet {
 }
 
 impl PacketPartialDeser {
-    /// Invariant after deserialize: `< u64::MAX`.
-    pub fn sequence(&self) -> u64 {
-        match self {
-            Self::SmallReliable { sequence, .. }
-            | Self::SmallUnreliable { sequence, .. }
-            | Self::UnreliableSlice { sequence, .. }
-            | Self::ReliableSlice { sequence, .. }
-            | Self::Ack { sequence, .. } => *sequence,
-        }
-    }
-
     /// Reliable packets should be acked asap.
     /// Non-reliable packet acks may be delayed until the next ack timer.
     pub fn is_reliable(&self) -> bool {
@@ -578,7 +542,7 @@ impl PacketPartialDeser {
         match packet_type {
             0 => {
                 // SmallReliable
-                let sequence = Self::deserialize_sequence(&mut b)?;
+                let sequence = deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let messages_len = b.get_u16()?;
                 let messages = SmallReliableIterator::new(messages_len, bytes.slice(b.off()..));
@@ -590,19 +554,14 @@ impl PacketPartialDeser {
             }
             1 => {
                 // SmallUnreliable
-                let sequence = Self::deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let messages_len = b.get_u16()?;
                 let messages = SmallUnreliableIterator::new(messages_len, bytes.slice(b.off()..));
-                Ok(Self::SmallUnreliable {
-                    sequence,
-                    channel_id,
-                    messages,
-                })
+                Ok(Self::SmallUnreliable { channel_id, messages })
             }
             2 => {
                 // ReliableSlice
-                let sequence = Self::deserialize_sequence(&mut b)?;
+                let sequence = deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let message_id = b.get_varint()?;
                 let slice_index = b.get_varint()? as usize;
@@ -640,7 +599,6 @@ impl PacketPartialDeser {
             }
             3 => {
                 // UnreliableSlice
-                let sequence = Self::deserialize_sequence(&mut b)?;
                 let channel_id = b.get_u8()?;
                 let message_id = b.get_varint()?;
                 let slice_index = b.get_varint()? as usize;
@@ -670,7 +628,6 @@ impl PacketPartialDeser {
                     payload,
                 };
                 Ok(Self::UnreliableSlice {
-                    sequence,
                     channel_id,
                     slice,
                     ack_ranges,
@@ -678,10 +635,9 @@ impl PacketPartialDeser {
             }
             4 => {
                 // Ack
-                let sequence = Self::deserialize_sequence(&mut b)?;
                 let pos = b.off();
                 let ack_ranges = AckRangesIterator::try_deserialize(bytes.slice(pos..))?;
-                Ok(Self::Ack { sequence, ack_ranges })
+                Ok(Self::Ack { ack_ranges })
             }
             _ => Err(SerializationError::InvalidPacketType),
         }
@@ -711,11 +667,7 @@ impl PacketPartialDeser {
                     maybe_acks,
                 ))
             }
-            Self::SmallUnreliable {
-                sequence,
-                channel_id,
-                mut messages,
-            } => {
+            Self::SmallUnreliable { channel_id, mut messages } => {
                 messages.reset();
                 let mut accumulated = Vec::with_capacity(messages.len as usize);
                 while let Some(message) = messages.next()? {
@@ -725,7 +677,6 @@ impl PacketPartialDeser {
 
                 Ok((
                     Packet::SmallUnreliable {
-                        sequence,
                         channel_id,
                         messages: accumulated,
                     },
@@ -749,35 +700,18 @@ impl PacketPartialDeser {
                 ))
             }
             Self::UnreliableSlice {
-                sequence,
                 channel_id,
                 slice,
                 ack_ranges,
             } => {
                 let maybe_acks = Self::get_maybe_acks(ack_ranges)?;
-                Ok((
-                    Packet::UnreliableSlice {
-                        sequence,
-                        channel_id,
-                        slice,
-                    },
-                    maybe_acks,
-                ))
+                Ok((Packet::UnreliableSlice { channel_id, slice }, maybe_acks))
             }
-            Self::Ack { sequence, ack_ranges } => {
+            Self::Ack { ack_ranges } => {
                 let maybe_acks = Self::get_maybe_acks(ack_ranges)?;
-                Ok((Packet::Ack { sequence }, maybe_acks))
+                Ok((Packet::Ack, maybe_acks))
             }
         }
-    }
-
-    fn deserialize_sequence(b: &mut octets::Octets) -> Result<u64, SerializationError> {
-        let sequence = b.get_varint()?;
-        // Sequence ranges end in sequence + 1 so we must check this.
-        if sequence == u64::MAX {
-            return Err(SerializationError::InvalidSequence);
-        }
-        Ok(sequence)
     }
 
     fn get_maybe_acks(maybe_it: Option<AckRangesIterator>) -> Result<Option<AckRanges>, SerializationError> {
@@ -786,6 +720,17 @@ impl PacketPartialDeser {
         it.make_acks(&mut acks)?;
         Ok(Some(acks))
     }
+}
+
+fn deserialize_sequence(b: &mut octets::Octets) -> Result<u64, SerializationError> {
+    let sequence = b.get_varint()?;
+    // Sequence ranges end in sequence + 1 so we must check this.
+    // NOTE: `octets::get_varint` will only return values <= `octets::MAX_VAR_INT` so this condition
+    // can never trigger. But we check it anyway for robustness and to document the invariant.
+    if sequence == u64::MAX {
+        return Err(SerializationError::InvalidSequence);
+    }
+    Ok(sequence)
 }
 
 #[cfg(test)]
@@ -819,8 +764,9 @@ mod tests {
             messages: vec![(0, vec![0, 0, 0].into()), (1, vec![1, 1, 1].into()), (2, vec![2, 2, 2].into())],
         };
         let acks = AckRanges {
-            ack_ranges: vec![3..7, 8..20],
+            sequence: None,
             rtt_delay_ms: None,
+            ack_ranges: vec![3..7, 8..20],
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
@@ -839,7 +785,6 @@ mod tests {
     fn serialize_small_unreliable_packet() {
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::SmallUnreliable {
-            sequence: 0,
             channel_id: 0,
             messages: vec![vec![0, 0, 0].into(), vec![1, 1, 1].into(), vec![2, 2, 2].into()],
         };
@@ -857,13 +802,13 @@ mod tests {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::SmallUnreliable {
-            sequence: 0,
             channel_id: 0,
             messages: vec![vec![0, 0, 0].into(), vec![1, 1, 1].into(), vec![2, 2, 2].into()],
         };
         let acks = AckRanges {
-            ack_ranges: vec![3..7, 8..20],
+            sequence: None,
             rtt_delay_ms: None,
+            ack_ranges: vec![3..7, 8..20],
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
@@ -906,8 +851,9 @@ mod tests {
     fn serialize_reliable_slice_packet_with_acks() {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let acks = AckRanges {
-            ack_ranges: vec![3..7, 8..20],
+            sequence: None,
             rtt_delay_ms: None,
+            ack_ranges: vec![3..7, 8..20],
         };
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
         let acks_len = acks.to_bytes(&mut acks_b).unwrap();
@@ -937,7 +883,6 @@ mod tests {
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let packet = Packet::UnreliableSlice {
-            sequence: 0,
             channel_id: 0,
             slice: Slice {
                 message_id: 0,
@@ -960,15 +905,15 @@ mod tests {
     fn serialize_unreliable_slice_packet_with_acks() {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let acks = AckRanges {
-            ack_ranges: vec![3..7, 8..20],
+            sequence: Some(31),
             rtt_delay_ms: None,
+            ack_ranges: vec![3..7, 8..20],
         };
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
         let acks_len = acks.to_bytes(&mut acks_b).unwrap();
 
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
         let packet = Packet::UnreliableSlice {
-            sequence: 0,
             channel_id: 0,
             slice: Slice {
                 message_id: 0,
@@ -990,7 +935,7 @@ mod tests {
     fn serialize_ack_packet() {
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
-        let packet = Packet::Ack { sequence: 222 };
+        let packet = Packet::Ack;
 
         let mut b = octets::OctetsMut::with_slice(&mut buffer);
         let (_, acks_written) = packet.to_bytes(&mut b, None).unwrap();
@@ -1006,10 +951,11 @@ mod tests {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
-        let packet = Packet::Ack { sequence: 0 };
+        let packet = Packet::Ack;
         let acks = AckRanges {
-            ack_ranges: vec![3..7, 10..20, 30..100],
+            sequence: None,
             rtt_delay_ms: None,
+            ack_ranges: vec![3..7, 10..20, 30..100],
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
@@ -1029,10 +975,11 @@ mod tests {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
         let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
 
-        let packet = Packet::Ack { sequence: 20 };
+        let packet = Packet::Ack;
         let acks = AckRanges {
-            ack_ranges: vec![3..7, 10..20, 30..100],
+            sequence: None,
             rtt_delay_ms: Some(555),
+            ack_ranges: vec![3..7, 10..20, 30..100],
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
@@ -1048,13 +995,66 @@ mod tests {
     }
 
     #[test]
+    fn serialize_ack_packet_with_delay_and_seq() {
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
+
+        let packet = Packet::Ack;
+        let acks = AckRanges {
+            sequence: Some(0),
+            rtt_delay_ms: Some(555),
+            ack_ranges: vec![3..7, 10..20, 30..100],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        let acks_len = acks.to_bytes(&mut acks_b).unwrap();
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, Some(&ack_buffer[..acks_len])).unwrap();
+        assert!(acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, Some(acks));
+    }
+
+    #[test]
+    fn serialize_ack_ranges_basic() {
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+
+        let acks = AckRanges {
+            sequence: None,
+            rtt_delay_ms: None,
+            ack_ranges: vec![3..7, 10..20, 30..100],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        assert!(acks.to_bytes(&mut acks_b).is_ok());
+    }
+
+    #[test]
+    fn serialize_ack_ranges_full() {
+        let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+
+        let acks = AckRanges {
+            sequence: Some(111),
+            rtt_delay_ms: Some(121212),
+            ack_ranges: vec![3..7, 10..20, 30..100],
+        };
+
+        let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+        assert!(acks.to_bytes(&mut acks_b).is_ok());
+    }
+
+    #[test]
     fn serialize_ack_ranges_empty() {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let acks = AckRanges {
+            sequence: None,
+            rtt_delay_ms: None,
             // zero ranges not allowed
             ack_ranges: vec![],
-            rtt_delay_ms: None,
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
@@ -1066,9 +1066,10 @@ mod tests {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let acks = AckRanges {
+            sequence: None,
+            rtt_delay_ms: None,
             // empty range not allowed
             ack_ranges: vec![3..7, 10..20, 22..22],
-            rtt_delay_ms: None,
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
@@ -1080,12 +1081,29 @@ mod tests {
         let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
 
         let acks = AckRanges {
+            sequence: None,
+            rtt_delay_ms: None,
             // gap of 0 not allowed
             ack_ranges: vec![3..7, 7..20],
-            rtt_delay_ms: None,
         };
 
         let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
         assert!(acks.to_bytes(&mut acks_b).is_err());
     }
+
+    // Octets can't serialize anything over octets::MAX_VAR_INT
+    // #[test]
+    // fn serialize_ack_ranges_max_seq() {
+    //     let mut ack_buffer = [0u8; MAX_PAYLOAD_BYTES];
+
+    //     let acks = AckRanges {
+    //         // max-level sequence not allowed
+    //         sequence: Some(u64::MAX),
+    //         rtt_delay_ms: None,
+    //         ack_ranges: vec![3..7],
+    //     };
+
+    //     let mut acks_b = octets::OctetsMut::with_slice(&mut ack_buffer);
+    //     assert!(acks.to_bytes(&mut acks_b).is_err());
+    // }
 }

@@ -490,6 +490,7 @@ fn advance_turn(_on: On<Add<Symbol>>, mut commands: Commands, mut turn_symbol: R
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn update_buttons_background(mut buttons: Query<(Has<Pressed>, Has<Hovered>, &mut BackgroundColor), With<Button>>) {
     const HOVER_COLOR: Color = Color::srgb(0.85, 0.85, 0.85);
     const PRESS_COLOR: Color = Color::srgb(0.95, 0.95, 0.95);
