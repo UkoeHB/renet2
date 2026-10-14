@@ -16,33 +16,39 @@ pub struct Slice {
     pub payload: Bytes,
 }
 
-/// All packets *may* be appended with a serialized [`AckRanges`].
+/// All packets except [`Self::Sequence`] *may* be appended with a serialized [`AckRanges`].
 /// If there are no ack ranges, nothing extra will be serialized.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Packet {
-    // Small messages in a reliable channel are aggregated and sent in this packet
+    /// Small messages in a reliable channel are aggregated and sent in this packet
     SmallReliable {
         sequence: u64,
         channel_id: u8,
         messages: Vec<(u64, Bytes)>,
     },
-    // Small messages in an unreliable channel are aggregated and sent in this packet
+    /// Small messages in an unreliable channel are aggregated and sent in this packet
     SmallUnreliable {
         channel_id: u8,
         messages: Vec<Bytes>,
     },
-    // A big reliable messages is sliced in multiple slice packets
+    /// A big reliable messages is sliced in multiple slice packets
     ReliableSlice {
         sequence: u64,
         channel_id: u8,
         slice: Slice,
     },
-    // A big unreliable message is sliced in multiple slice packets
+    /// A big unreliable message is sliced in multiple slice packets
     UnreliableSlice {
         channel_id: u8,
         slice: Slice,
     },
     Ack,
+    /// Just a sequence, NO acks.
+    ///
+    /// Useful for rtt when there are no acks available to send where the sequence could be included.
+    Sequence {
+        sequence: u64,
+    },
 }
 
 /// Acks are saved in multiple ranges, all values in the ranges are considered acked.
@@ -386,6 +392,9 @@ pub enum PacketPartialDeser {
     Ack {
         ack_ranges: Option<AckRangesIterator>,
     },
+    Sequence {
+        sequence: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -430,7 +439,7 @@ impl Packet {
     pub fn is_reliable(&self) -> bool {
         match self {
             Self::SmallReliable { .. } | Self::ReliableSlice { .. } => true,
-            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::Ack { .. } => false,
+            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::Ack { .. } | Self::Sequence { .. } => false,
         }
     }
 
@@ -496,6 +505,12 @@ impl Packet {
                 b.put_u8(4)?;
                 Self::try_write_acks(b, acks)?
             }
+            Self::Sequence { sequence } => {
+                b.put_u8(5)?;
+                b.put_varint(*sequence)?;
+                // ignore acks
+                false
+            }
         };
 
         Ok((before - b.cap(), acks_written))
@@ -526,7 +541,7 @@ impl PacketPartialDeser {
     pub fn is_reliable(&self) -> bool {
         match self {
             Self::SmallReliable { .. } | Self::ReliableSlice { .. } => true,
-            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::Ack { .. } => false,
+            Self::SmallUnreliable { .. } | Self::UnreliableSlice { .. } | Self::Ack { .. } | Self::Sequence { .. } => false,
         }
     }
 
@@ -639,6 +654,11 @@ impl PacketPartialDeser {
                 let ack_ranges = AckRangesIterator::try_deserialize(bytes.slice(pos..))?;
                 Ok(Self::Ack { ack_ranges })
             }
+            5 => {
+                // Sequence
+                let sequence = deserialize_sequence(&mut b)?;
+                Ok(Self::Sequence { sequence })
+            }
             _ => Err(SerializationError::InvalidPacketType),
         }
     }
@@ -711,6 +731,7 @@ impl PacketPartialDeser {
                 let maybe_acks = Self::get_maybe_acks(ack_ranges)?;
                 Ok((Packet::Ack, maybe_acks))
             }
+            Self::Sequence { sequence } => Ok((Packet::Sequence { sequence }, None)),
         }
     }
 
@@ -1016,6 +1037,21 @@ mod tests {
         let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
         assert_eq!(recv_packet, packet);
         assert_eq!(recv_acks, Some(acks));
+    }
+
+    #[test]
+    fn serialize_sequence_packet() {
+        let mut buffer = [0u8; MAX_PAYLOAD_BYTES];
+
+        let packet = Packet::Sequence { sequence: 111 };
+
+        let mut b = octets::OctetsMut::with_slice(&mut buffer);
+        let (_, acks_written) = packet.to_bytes(&mut b, None).unwrap();
+        assert!(!acks_written);
+
+        let (recv_packet, recv_acks) = Packet::from_bytes(buffer.as_slice()).unwrap();
+        assert_eq!(recv_packet, packet);
+        assert_eq!(recv_acks, None);
     }
 
     #[test]

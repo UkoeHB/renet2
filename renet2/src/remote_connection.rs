@@ -141,6 +141,7 @@ struct PacketSent {
 /// All packets may contain ack ranges.
 #[derive(Debug, Clone)]
 enum PacketSentInfo {
+    None,
     Ack {
         largest_acked_packet: u64,
     },
@@ -491,7 +492,7 @@ impl RenetClient {
         }
     }
 
-    /// Send a message to the server over a channel.
+    /// Send a message to the paired client over a channel.
     pub fn send_message<I: Into<u8>, B: Into<Bytes>>(&mut self, channel_id: I, message: B) {
         if self.is_disconnected() {
             return;
@@ -513,7 +514,7 @@ impl RenetClient {
         }
     }
 
-    /// Receive a message from the server over a channel.
+    /// Receive a message from the paired client over a channel.
     pub fn receive_message<I: Into<u8>>(&mut self, channel_id: I) -> Option<Bytes> {
         if self.is_disconnected() {
             return None;
@@ -676,6 +677,12 @@ impl RenetClient {
                 ack_ranges
             }
             PacketPartialDeser::Ack { ack_ranges, .. } => ack_ranges,
+            PacketPartialDeser::Sequence { sequence } => {
+                // Use ack ranges as sequence shuttle.
+                let mut ack_ranges = AckRangesIterator::default();
+                ack_ranges.sequence = Some(sequence);
+                Some(ack_ranges)
+            }
         };
 
         // Handle acks
@@ -711,7 +718,7 @@ impl RenetClient {
     fn get_packets_to_send_impl(&mut self) -> Result<(), DisconnectReason> {
         self.payloads_cache.append(&mut self.payloads_ser);
 
-        if self.is_disconnected() {
+        if !self.is_connected() {
             return Ok(());
         }
 
@@ -830,6 +837,15 @@ impl RenetClient {
                         );
                     }
                 }
+                Packet::Sequence { sequence } => {
+                    self.sent_packets.insert(
+                        *sequence,
+                        PacketSent {
+                            sent_at,
+                            info: PacketSentInfo::None,
+                        },
+                    );
+                }
             }
 
             Ok(acks_written)
@@ -873,13 +889,13 @@ impl RenetClient {
                             // Acks without sequence
                             (true, false) => Some(None),
                             // Acks with sequence
-                            (true, true) => Some(Some(self.packet_sequence + 1)),
+                            (true, true) => Some(Some(self.packet_sequence)),
                         };
                         if consume_packet_fn(packet, add_acks)? {
                             acks_count_sent += 1;
-                            if let Some(Some(sequence)) = add_acks {
+                            if let Some(Some(_sequence)) = add_acks {
                                 sequenced_count_sent += 1;
-                                self.packet_sequence = sequence;
+                                self.packet_sequence += 1;
                             }
                         }
                     }
@@ -895,17 +911,30 @@ impl RenetClient {
         let seq_needed = ack_needed && seq_expired && sequenced_count_sent == 0;
 
         if burst_needed || ack_needed {
-            let add_acks = if seq_needed { Some(Some(self.packet_sequence + 1)) } else { Some(None) };
+            let add_acks = if seq_needed { Some(Some(self.packet_sequence)) } else { Some(None) };
             if consume_packet_fn(&Packet::Ack, add_acks)? {
                 acks_count_sent += 1;
-                if let Some(Some(sequence)) = add_acks {
+                if let Some(Some(_sequence)) = add_acks {
                     sequenced_count_sent += 1;
-                    self.packet_sequence = sequence;
+                    self.packet_sequence += 1;
                 }
             } else {
                 log::warn!("failed writing acks to ack packet unexpectedly, trying to recover...");
             }
         }
+
+        // Fall back to a sequence message if our seq timer expired and there are no acks
+        if seq_expired && sequenced_count_sent == 0 {
+            let packet = Packet::Sequence {
+                sequence: self.packet_sequence,
+            };
+            self.packet_sequence += 1;
+            if consume_packet_fn(&packet, None)? {
+                log::warn!("wrote acks to sequence packet unexpectedly...");
+            }
+            sequenced_count_sent += 1;
+        }
+
         self.payloads_cache.push(acks_buffer);
 
         // Update state
@@ -915,10 +944,13 @@ impl RenetClient {
             // Time when we must send an ack with sequence for initiating an rtt calc.
             self.next_sequenced_ack = self.current_time.saturating_add(self.ack_config.ack_send_timeout);
         }
-        if acks_count_sent > 0 {
+        if acks_count_sent > 0 || !has_pending_acks {
             self.rtt_delay_ref = None;
             // Time when we must send an ack for reliability fallback and sent packet cleanup in the paired client.
             self.next_any_ack = self.current_time.saturating_add(self.ack_config.ack_send_timeout);
+
+            // `!has_pending_acks` check: reset if there are no acks so the timer doesn't accidentally trigger an
+            // ack send early after we receive the next sequence.
         }
         if self.rtt_delay_ref.is_none() && has_pending_acks && acks_count_sent == 0 {
             // In this case we are at the *start* of an ack delay. The delay will be from this point in the tick
@@ -1004,6 +1036,7 @@ impl RenetClient {
                     largest_acked_packet
                 }
                 PacketSentInfo::Ack { largest_acked_packet } => Some(largest_acked_packet),
+                PacketSentInfo::None => None,
             };
 
             if let Some(largest_acked_packet) = largest_acked_packet {
@@ -1173,28 +1206,182 @@ mod tests {
     }
 
     #[test]
-    fn discard_old_packets() {
-        let mut connection = RenetClient::new(ConnectionConfig::test(), false);
+    fn message_lifecycle() {
+        let mut c1 = RenetClient::new(ConnectionConfig::test(), false);
+        let mut c2 = RenetClient::new(ConnectionConfig::test(), false);
+        c1.set_connected();
+        c2.set_connected();
 
-        // - nothing
-        connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 0);
+        // 0s: startup
+        {
+            // Send: sequence (timeout)
+            {
+                let payloads = c1.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::Sequence { sequence: 0 }));
+                assert!(recv_acks.is_none());
 
-        // - 0s: message (reliable)
-        let message: Bytes = vec![5; 5].into();
-        connection.send_message(DefaultChannel::ReliableUnordered, message);
-        connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 1);
+                for payload in payloads {
+                    c2.process_packet(payload);
+                }
 
-        // - 0s: message (reliable)
-        // - 1s: ack (sequenced from timeout)
-        connection.update(Duration::from_secs(1));
-        connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 2);
+                assert_eq!(c1.sent_packets.len(), 1);
+                assert!(matches!(c1.sent_packets[&0].info, PacketSentInfo::None));
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 0);
 
-        // - 4s: ack (sequenced from timeout)
-        connection.update(Duration::from_secs(4));
-        connection.get_packets_to_send();
-        assert_eq!(connection.sent_packets.len(), 1);
+                // Check c2's progress
+                assert_eq!(c2.sent_packets.len(), 0); // Nothing yet
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Sequence 0
+            }
+            // Send: ack (timeout + acks to send) (sequenced)
+            {
+                let payloads = c2.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::Ack));
+                assert!(recv_acks.is_some());
+                assert!(recv_acks.unwrap().sequence.is_some());
+
+                for payload in payloads {
+                    c1.process_packet(payload);
+                }
+
+                assert_eq!(c2.sent_packets.len(), 1);
+                assert!(matches!(c2.sent_packets[&0].info, PacketSentInfo::Ack { .. }));
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Sequence 0
+
+                // Check c1's progress
+                assert_eq!(c1.sent_packets.len(), 0); // Sequence 0 was acked
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Ack w/ sequence 0
+            }
+        }
+
+        // 0s: message c1 -> c2
+        {
+            // Send: message (no acks)
+            {
+                let message: Bytes = vec![5; 5].into();
+                c1.send_message(DefaultChannel::ReliableUnordered, message);
+
+                let payloads = c1.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::SmallReliable { .. }));
+                assert!(recv_acks.is_none());
+
+                for payload in payloads {
+                    c2.process_packet(payload);
+                }
+
+                // First sequence was acked
+                assert_eq!(c1.sent_packets.len(), 1);
+                assert!(matches!(c1.sent_packets[&1].info, PacketSentInfo::ReliableMessages { .. }));
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Ack w/ sequence 0
+
+                // Check c2's progress
+                assert_eq!(c2.sent_packets.len(), 1); // Ack w/ sequence 0 was NOT acked
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 2); // Seq 0, msg seq 1
+            }
+            {
+                // c2 do nothing
+            }
+        }
+
+        // 1s: c1 message resend
+        {
+            c1.update(Duration::from_secs(1));
+            assert_eq!(c1.sent_packets.len(), 1); // No change
+            assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // No change
+
+            c2.update(Duration::from_secs(1));
+            assert_eq!(c2.sent_packets.len(), 1); // No change
+            assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 2); // No Change
+
+            // Send: message again (+ acks for timeout)
+            {
+                let payloads = c1.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::SmallReliable { .. }));
+                assert!(recv_acks.is_some());
+
+                for payload in payloads {
+                    c2.process_packet(payload);
+                }
+
+                assert_eq!(c1.sent_packets.len(), 2);
+                assert!(matches!(c1.sent_packets[&1].info, PacketSentInfo::ReliableMessages { .. }));
+                assert!(matches!(c1.sent_packets[&2].info, PacketSentInfo::ReliableMessages { .. }));
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Ack w/ sequence 0
+
+                // Check c2's progress
+                assert_eq!(c2.sent_packets.len(), 0); // Has now received seq 0 ack
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 2); // Messages w/ sequence 1, 2
+            }
+            {
+                let payloads = c2.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::Ack));
+                assert!(recv_acks.is_some());
+
+                for payload in payloads {
+                    c1.process_packet(payload);
+                }
+
+                assert_eq!(c2.sent_packets.len(), 1); // Ack sequence 1
+                assert!(matches!(c2.sent_packets[&1].info, PacketSentInfo::Ack { .. }));
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 2); // Messages w/ sequence 1, 2
+
+                // Check c1's progress
+                assert_eq!(c1.sent_packets.len(), 0); // Everything acked
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Ack w/ sequence 2
+            }
+        }
+
+        // - 5s: send acks (timeout)
+        {
+            c1.update(Duration::from_secs(4));
+            assert_eq!(c1.sent_packets.len(), 0); // No change
+            assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // No change
+
+            c2.update(Duration::from_secs(4));
+            assert_eq!(c2.sent_packets.len(), 0); // Sent acks cleared
+            assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 2); // No Change
+
+            // Send: acks for stale receives (timeout)
+            {
+                let payloads = c1.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::Ack));
+                assert!(recv_acks.is_some());
+
+                for payload in payloads {
+                    c2.process_packet(payload);
+                }
+
+                assert_eq!(c1.sent_packets.len(), 1); // Ack w/ sequence 3
+                assert!(matches!(c1.sent_packets[&3].info, PacketSentInfo::Ack { .. }));
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Ack w/ sequence 1
+
+                // Check c2's progress
+                assert_eq!(c2.sent_packets.len(), 0); // Has not sent anything
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 3); // msg seq 1, msg seq 2, seq 3
+            }
+            {
+                let payloads = c2.get_packets_to_send();
+                let (recv_packet, recv_acks) = Packet::from_bytes(payloads[0].as_slice()).unwrap();
+                assert!(matches!(recv_packet, Packet::Ack));
+                assert!(recv_acks.is_some());
+
+                for payload in payloads {
+                    c1.process_packet(payload);
+                }
+
+                assert_eq!(c2.sent_packets.len(), 1); // Ack sequence 2
+                assert!(matches!(c2.sent_packets[&2].info, PacketSentInfo::Ack { .. }));
+                assert_eq!(c2.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 3); // msg seq 1, msg seq 2, seq 3
+
+                // Check c1's progress
+                assert_eq!(c1.sent_packets.len(), 0); // Everything acked
+                assert_eq!(c1.pending_acks.iter().map(|r| r.end - r.start).sum::<u64>(), 1); // Ack w/ sequence 2
+            }
+        }
     }
 }

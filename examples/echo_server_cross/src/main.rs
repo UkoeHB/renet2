@@ -112,6 +112,7 @@ fn run_renet_server(mut transport: NetcodeServerTransport) {
         let duration = now - last_updated;
         last_updated = now;
 
+        server.update(duration);
         transport.update(duration, &mut server).unwrap();
         trace!("server update");
 
