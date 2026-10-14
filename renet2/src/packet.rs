@@ -538,6 +538,7 @@ impl Packet {
 impl PacketPartialDeser {
     /// Reliable packets should be acked asap.
     /// Non-reliable packet acks may be delayed until the next ack timer.
+    #[allow(unused)]
     pub fn is_reliable(&self) -> bool {
         match self {
             Self::SmallReliable { .. } | Self::ReliableSlice { .. } => true,
