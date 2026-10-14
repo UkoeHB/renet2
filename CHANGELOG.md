@@ -3,6 +3,7 @@
 ## WIP
 
 - Better handling of replay attacks in `renet2`.
+- Remove sequences from unreliable packets and acks in the `renet2` reliability layer. A sequence will be added occasionally for rtt calculations. **Breaking change to packet serialization**
 
 
 ## 0.19.0 - 10/12/26

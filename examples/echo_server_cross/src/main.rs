@@ -119,7 +119,7 @@ fn run_renet_server(mut transport: NetcodeServerTransport) {
             match event {
                 ServerEvent::ClientConnected { client_id } => {
                     info!("Client {} connected.", client_id);
-                    server.send_message(client_id, DefaultChannel::Unreliable, b"Welcome to the server!".to_vec());
+                    server.send_message(client_id, DefaultChannel::ReliableUnordered, b"Welcome to the server!".to_vec());
                 }
                 ServerEvent::ClientDisconnected { client_id, reason } => {
                     info!("Client {} disconnected: {}", client_id, reason);
@@ -128,7 +128,7 @@ fn run_renet_server(mut transport: NetcodeServerTransport) {
         }
 
         for client_id in server.clients_id() {
-            while let Some(message) = server.receive_message(client_id, DefaultChannel::Unreliable) {
+            while let Some(message) = server.receive_message(client_id, DefaultChannel::ReliableUnordered) {
                 let message = String::from_utf8(message.into()).unwrap();
                 info!("Client {} sent text: {}", client_id, message);
                 let text = format!("{}: {}", client_id, message);
@@ -137,7 +137,7 @@ fn run_renet_server(mut transport: NetcodeServerTransport) {
         }
 
         for text in received_messages.drain(..) {
-            server.broadcast_message(DefaultChannel::Unreliable, text.as_bytes().to_vec());
+            server.broadcast_message(DefaultChannel::ReliableUnordered, text.as_bytes().to_vec());
         }
 
         transport.send_packets(&mut server);

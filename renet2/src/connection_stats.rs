@@ -6,9 +6,13 @@ const SIZE: usize = (WINDOW.as_millis() / RESOLUTION.as_millis()) as usize;
 
 #[derive(Debug, Default)]
 pub struct ConnectionStats {
+    /// Only tracks sequenced packets. The total number of packets may be higher.
     packets_sent: [u64; SIZE],
+    /// Acks are only received for sequenced packets.
     packets_acked: [u64; SIZE],
+    /// Bytes sent for all packets.
     bytes_sent: [u64; SIZE],
+    /// Bytes sent for all packets.
     bytes_received: [u64; SIZE],
     current_index: usize,
 }
@@ -39,8 +43,8 @@ impl ConnectionStats {
         }
     }
 
-    pub fn sent_packets(&mut self, num_packets: u64, bytes: u64) {
-        self.packets_sent[self.current_index] += num_packets;
+    pub fn sent_packets(&mut self, num_sequenced_packets: u64, bytes: u64) {
+        self.packets_sent[self.current_index] += num_sequenced_packets;
         self.bytes_sent[self.current_index] += bytes;
     }
 
