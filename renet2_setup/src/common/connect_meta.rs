@@ -30,7 +30,7 @@ impl ConnectMetaMemory {
         let token = ConnectToken::generate(
             current_time,
             self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.server_config.expire_secs as u64,
             client_id,
             self.server_config.timeout_secs,
             self.socket_id,
@@ -85,7 +85,7 @@ impl ConnectMetaNative {
         let token = ConnectToken::generate(
             current_time,
             self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.server_config.expire_secs as u64,
             client_id,
             self.server_config.timeout_secs,
             self.socket_id,
@@ -118,7 +118,7 @@ impl ConnectMetaWasmWt {
         let token = ConnectToken::generate(
             current_time,
             self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.server_config.expire_secs as u64,
             client_id,
             self.server_config.timeout_secs,
             self.socket_id,
@@ -155,7 +155,7 @@ impl ConnectMetaWasmWs {
         let token = ConnectToken::generate(
             current_time,
             self.server_config.protocol_id,
-            self.server_config.expire_secs,
+            self.server_config.expire_secs as u64,
             client_id,
             self.server_config.timeout_secs,
             self.socket_id,

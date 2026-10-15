@@ -20,6 +20,7 @@ fn create_server_transport(num_clients: usize) -> (NetcodeServerTransport, Vec<M
     let server_config = ServerSetupConfig {
         socket_addresses: vec![vec![in_memory_server_addr()]],
         current_time,
+        max_token_lifetime: 5,
         max_clients: num_clients,
         protocol_id: PROTOCOL_ID,
         authentication: ServerAuthentication::Unsecure,

@@ -72,6 +72,7 @@ fn read_cli(mut commands: Commands, cli: Res<Cli>, channels: Res<RepliconChannel
             let socket = UdpSocket::bind(public_addr)?;
             let server_config = ServerSetupConfig {
                 current_time,
+                max_token_lifetime: 5,
                 max_clients: 10,
                 protocol_id: PROTOCOL_ID,
                 authentication: ServerAuthentication::Unsecure,

@@ -129,6 +129,7 @@ fn server(addr: SocketAddr, private_key: [u8; NETCODE_KEY_BYTES]) {
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let config = ServerConfig {
         current_time,
+        max_token_lifetime: 5,
         max_clients: 16,
         protocol_id: PROTOCOL_ID,
         sockets: vec![ServerSocketConfig::new(vec![addr])],

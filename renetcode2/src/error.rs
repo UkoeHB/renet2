@@ -24,6 +24,8 @@ pub enum NetcodeError {
     DuplicatedSequence,
     /// No more host are available in the connect token..
     NoMoreServers,
+    /// The connect token was created before the server started.
+    TokenPredatesServer,
     /// The connect token has expired.
     Expired,
     /// The client is disconnected.
@@ -54,6 +56,7 @@ impl fmt::Display for NetcodeError {
             InvalidVersion => write!(fmt, "invalid version info"),
             PacketTooSmall => write!(fmt, "packet is too small"),
             PayloadAboveLimit => write!(fmt, "payload is above the {} bytes limit", NETCODE_MAX_PAYLOAD_BYTES),
+            TokenPredatesServer => write!(fmt, "token created before server started"),
             Expired => write!(fmt, "connection expired"),
             DuplicatedSequence => write!(fmt, "sequence already received"),
             Disconnected(reason) => write!(fmt, "disconnected: {}", reason),
