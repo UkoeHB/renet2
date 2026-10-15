@@ -12,7 +12,10 @@ use super::{NetcodeTransportError, ServerSocket};
 /// Will be converted to a [`ServerConfig`].
 pub struct ServerSetupConfig {
     pub current_time: Duration,
-    /// Maximum numbers of clients that can be connected at a time
+    /// Maximum time in seconds that a connect token may live.
+    /// Used to reject tokens potentially created before the server started.
+    pub max_token_lifetime: u16,
+    /// Maximum numbers of clients that can be connected at a time.
     pub max_clients: usize,
     /// Unique identifier for this particular game/application.
     /// You can use a hash function with the current version of the game to generate this value
@@ -80,6 +83,7 @@ impl NetcodeServerTransport {
 
         let server_config = ServerConfig {
             current_time: server_config.current_time,
+            max_token_lifetime: server_config.max_token_lifetime,
             max_clients: server_config.max_clients,
             protocol_id: server_config.protocol_id,
             sockets: socket_configs,

@@ -302,6 +302,7 @@ fn create_server_transport(max_clients: usize) -> NetcodeServerTransport {
     let public_addr = socket.local_addr().expect("socket should autodetect local address");
     let server_config = ServerSetupConfig {
         current_time,
+        max_token_lifetime: 5,
         max_clients,
         protocol_id: PROTOCOL_ID,
         socket_addresses: vec![vec![public_addr]],

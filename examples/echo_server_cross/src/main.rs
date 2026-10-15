@@ -55,6 +55,7 @@ fn main() {
     let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
     let server_config = ServerSetupConfig {
         current_time,
+        max_token_lifetime: 5,
         max_clients,
         protocol_id: 0,
         socket_addresses: vec![

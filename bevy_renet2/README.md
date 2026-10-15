@@ -28,6 +28,7 @@ let server_addr = "127.0.0.1:5000".parse().unwrap();
 let socket = UdpSocket::bind(server_addr).unwrap();
 let server_config = ServerSetupConfig {
     current_time: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap(),
+    max_token_lifetime: 5,
     max_clients: 64,
     protocol_id: 0,
     socket_addresses: vec![vec![server_addr]],

@@ -13,7 +13,7 @@ pub struct GameServerSetupConfig {
     /// Protocol id for server/client compatibility.
     pub protocol_id: u64,
     /// How long connect tokens should live before expiring.
-    pub expire_secs: u64,
+    pub expire_secs: u16,
     /// Internal connection timeout for clients and servers.
     pub timeout_secs: i32,
     /// The server's IP address. Used for both native and WASM server sockets.
@@ -71,7 +71,7 @@ impl GameServerSetupConfig {
     pub fn dummy() -> Self {
         Self {
             protocol_id: 0u64,
-            expire_secs: 10u64,
+            expire_secs: 10u16,
             timeout_secs: 5i32,
             server_ip: Ipv4Addr::LOCALHOST.into(),
             native_port: 0,

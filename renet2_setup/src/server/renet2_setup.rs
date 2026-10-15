@@ -335,6 +335,7 @@ pub fn setup_combo_renet2_server_with_key(
     // save final addresses
     let server_config = ServerSetupConfig {
         current_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default(),
+        max_token_lifetime: config.expire_secs,
         max_clients,
         protocol_id: config.protocol_id,
         socket_addresses,

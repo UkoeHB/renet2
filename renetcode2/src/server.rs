@@ -65,6 +65,8 @@ pub struct NetcodeServer {
     challenge_sequence: u64,
     challenge_key: [u8; NETCODE_KEY_BYTES],
     current_time: Duration,
+    /// Minimum timestamp for connect token expiration.
+    min_token_expire: u64,
     global_sequence: u64,
     secure: bool,
     out: [u8; NETCODE_MAX_PACKET_BYTES],
@@ -155,6 +157,9 @@ pub enum ServerAuthentication {
 
 pub struct ServerConfig {
     pub current_time: Duration,
+    /// Maximum time in seconds that a connect token may live.
+    /// Used to reject tokens potentially created before the server started.
+    pub max_token_lifetime: u16,
     /// Maximum numbers of clients that can be connected at a time
     pub max_clients: usize,
     /// Unique identifier for this particular game/application.
@@ -202,6 +207,7 @@ impl NetcodeServer {
             global_sequence: 0,
             challenge_key,
             current_time: config.current_time,
+            min_token_expire: config.current_time.as_secs().saturating_add(config.max_token_lifetime as u64),
             secure,
             out: [0u8; NETCODE_MAX_PACKET_BYTES],
         }
@@ -211,6 +217,7 @@ impl NetcodeServer {
     pub fn __test() -> Self {
         let config = ServerConfig {
             current_time: Duration::ZERO,
+            max_token_lifetime: 5,
             max_clients: 32,
             protocol_id: 0,
             sockets: vec![ServerSocketConfig::new(vec!["127.0.0.1:0".parse().unwrap()])],
@@ -310,6 +317,12 @@ impl NetcodeServer {
 
         if protocol_id != self.protocol_id {
             return Err(NetcodeError::InvalidProtocolID);
+        }
+
+        // Tokens created before the server started must be rejected in case they were
+        // used by a previous server instance.
+        if self.min_token_expire > expire_timestamp {
+            return Err(NetcodeError::TokenPredatesServer);
         }
 
         if self.current_time.as_secs() >= expire_timestamp {
@@ -928,9 +941,10 @@ mod tests {
     const TEST_KEY: &[u8; NETCODE_KEY_BYTES] = b"an example very very secret key."; // 32-bytes
     const TEST_PROTOCOL_ID: u64 = 7;
 
-    fn new_server() -> NetcodeServer {
+    fn new_server(expire_seconds: u16) -> NetcodeServer {
         let config = ServerConfig {
             current_time: Duration::ZERO,
+            max_token_lifetime: expire_seconds,
             max_clients: 16,
             protocol_id: TEST_PROTOCOL_ID,
             sockets: vec![ServerSocketConfig::new(vec!["127.0.0.1:5000".parse().unwrap()])],
@@ -941,17 +955,17 @@ mod tests {
 
     #[test]
     fn server_connection() {
-        let mut server = new_server();
+        let expire_seconds = 3;
+        let mut server = new_server(expire_seconds);
         let server_addresses: Vec<SocketAddr> = server.addresses(0);
         let user_data = generate_random_bytes();
-        let expire_seconds = 3;
         let client_id = 4;
         let timeout_seconds = 5;
         let client_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
         let connect_token = ConnectToken::generate(
             Duration::ZERO,
             TEST_PROTOCOL_ID,
-            expire_seconds,
+            expire_seconds as u64,
             client_id,
             timeout_seconds,
             0,
@@ -1046,7 +1060,7 @@ mod tests {
 
     #[test]
     fn connect_token_already_used() {
-        let mut server = new_server();
+        let mut server = new_server(3);
 
         let client_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
         let mut connect_token = ConnectTokenEntry {
