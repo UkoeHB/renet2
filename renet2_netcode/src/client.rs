@@ -103,6 +103,11 @@ impl NetcodeClientTransport {
             self.socket.send(addr, payload)?;
         }
 
+        // Follow up with a ping if keepalive or connection ping is needed
+        if let Some((packet, addr)) = self.netcode_client.generate_ping() {
+            self.socket.send(addr, packet)?;
+        }
+
         Ok(())
     }
 
@@ -157,9 +162,7 @@ impl NetcodeClientTransport {
             }
         }
 
-        if let Some((packet, addr)) = self.netcode_client.update(duration) {
-            self.socket.send(addr, packet)?;
-        }
+        self.netcode_client.update(duration);
 
         self.socket.postupdate();
 

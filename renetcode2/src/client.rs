@@ -49,6 +49,12 @@ pub enum ClientAuthentication {
 /// encrypted packets from the server.
 /// The client is agnostic from the transport layer, only consuming and generating bytes
 /// that can be transported in any way desired.
+///
+/// Expected sequence each tick:
+/// - [`Self::process_packet`] for incoming packets
+/// - [`Self::update`]
+/// - [`Self::generate_payload_packet`] for outgoing packets
+/// - [`Self::generate_ping`] to get a connection or keepalive packet
 #[derive(Debug)]
 pub struct NetcodeClient {
     state: ClientState,
@@ -287,15 +293,53 @@ impl NetcodeClient {
     }
 
     /// Update the internal state of the client, receives the duration since last updated.
-    /// Might return the serve address and a protocol packet to be sent to the server.
-    pub fn update(&mut self, duration: Duration) -> Option<(&mut [u8], SocketAddr)> {
+    pub fn update(&mut self, duration: Duration) {
         if let Err(e) = self.update_internal_state(duration) {
             log::error!("Failed to update client: {}", e);
+        }
+    }
+
+    /// Call this after generating payloads with [`Self::generate_payload_packet`].
+    /// Might return the server address and a protocol packet to be sent to the server.
+    pub fn generate_ping(&mut self) -> Option<(&mut [u8], SocketAddr)> {
+        if let Some(last_packet_send_time) = self.last_packet_send_time
+            && self.current_time - last_packet_send_time < self.send_rate
+        {
             return None;
         }
 
-        // Generate packet for the current state
-        self.generate_packet()
+        if matches!(
+            self.state,
+            ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingConnectionResponse
+        ) {
+            self.last_packet_send_time = Some(self.current_time);
+        }
+        let packet = match self.state {
+            ClientState::SendingConnectionRequest => Packet::connection_request_from_token(&self.connect_token),
+            ClientState::SendingConnectionResponse => Packet::Response {
+                token_sequence: self.challenge_token_sequence,
+                token_data: self.challenge_token_data,
+            },
+            ClientState::Connected => Packet::KeepAlive {
+                client_index: 0,
+                max_clients: 0,
+            },
+            _ => return None,
+        };
+
+        let result = packet.encode(
+            &mut self.out,
+            self.connect_token.protocol_id,
+            Some((self.sequence, &self.connect_token.client_to_server_key)),
+            self.encryption_policy,
+        );
+        match result {
+            Err(_) => None,
+            Ok(encoded) => {
+                self.sequence += 1;
+                Some((&mut self.out[..encoded], self.server_addr))
+            }
+        }
     }
 
     fn update_internal_state(&mut self, duration: Duration) -> Result<(), NetcodeError> {
@@ -350,47 +394,6 @@ impl NetcodeClient {
             ClientState::Disconnected(reason) => Err(NetcodeError::Disconnected(reason)),
         }
     }
-
-    fn generate_packet(&mut self) -> Option<(&mut [u8], SocketAddr)> {
-        if let Some(last_packet_send_time) = self.last_packet_send_time
-            && self.current_time - last_packet_send_time < self.send_rate
-        {
-            return None;
-        }
-
-        if matches!(
-            self.state,
-            ClientState::Connected | ClientState::SendingConnectionRequest | ClientState::SendingConnectionResponse
-        ) {
-            self.last_packet_send_time = Some(self.current_time);
-        }
-        let packet = match self.state {
-            ClientState::SendingConnectionRequest => Packet::connection_request_from_token(&self.connect_token),
-            ClientState::SendingConnectionResponse => Packet::Response {
-                token_sequence: self.challenge_token_sequence,
-                token_data: self.challenge_token_data,
-            },
-            ClientState::Connected => Packet::KeepAlive {
-                client_index: 0,
-                max_clients: 0,
-            },
-            _ => return None,
-        };
-
-        let result = packet.encode(
-            &mut self.out,
-            self.connect_token.protocol_id,
-            Some((self.sequence, &self.connect_token.client_to_server_key)),
-            self.encryption_policy,
-        );
-        match result {
-            Err(_) => None,
-            Ok(encoded) => {
-                self.sequence += 1;
-                Some((&mut self.out[..encoded], self.server_addr))
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -425,7 +428,8 @@ mod tests {
         let client_key = connect_token.client_to_server_key;
         let authentication = ClientAuthentication::Secure { connect_token };
         let mut client = NetcodeClient::new(Duration::ZERO, authentication).unwrap();
-        let (packet_buffer, _) = client.update(Duration::ZERO).unwrap();
+        client.update(Duration::ZERO);
+        let (packet_buffer, _) = client.generate_ping().unwrap();
 
         let (r_sequence, packet) = Packet::decode(packet_buffer, protocol_id, None, None, true).unwrap();
         assert_eq!(0, r_sequence);
@@ -441,7 +445,8 @@ mod tests {
         client.process_packet(&mut buffer[..len]);
         assert_eq!(ClientState::SendingConnectionResponse, client.state);
 
-        let (packet_buffer, _) = client.update(Duration::ZERO).unwrap();
+        client.update(Duration::ZERO);
+        let (packet_buffer, _) = client.generate_ping().unwrap();
         let (_, packet) = Packet::decode(packet_buffer, protocol_id, Some(&client_key), None, true).unwrap();
         assert!(matches!(packet, Packet::Response { .. }));
 

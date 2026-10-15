@@ -5,6 +5,7 @@
 - Better handling of replay attacks in `renet2`.
 - Remove sequences from unreliable packets and acks in the `renet2` reliability layer. A sequence will be sent occasionally for rtt calculations, which may use the new `Packet::Sequence` type if there are no acks or otherwise inlined with ack ranges. **Breaking change to packet serialization**
 - End ack bursts early if possible.
+- Generate `netcode` keepalives after generating packets in the reliability layer to reduce redundant packets.
 
 
 ## 0.19.0 - 10/12/26

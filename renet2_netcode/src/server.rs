@@ -177,8 +177,8 @@ impl NetcodeServerTransport {
             }
         }
 
-        for client_id in self.netcode_server.clients_id() {
-            let server_result = self.netcode_server.update_client(client_id);
+        for (slot_idx, client_id) in self.netcode_server.clients_id_with_slots() {
+            let server_result = self.netcode_server.update_client(slot_idx, client_id);
             handle_server_result(server_result, &mut self.sockets, server);
         }
 
@@ -207,16 +207,14 @@ impl NetcodeServerTransport {
     ///
     /// Disconnects clients if their address connections are broken.
     pub fn send_packets(&mut self, server: &mut RenetServer) {
-        //TODO: it isn't necessary to allocate client ids here, just use one big vec of packets for all clients
-        // - also, the vec can be cached in RenetServer for reuse, and likewise with the internal pieces of packets
-        for client_id in self.netcode_server.clients_id() {
+        for (slot_idx, client_id) in self.netcode_server.clients_id_with_slots() {
             let Ok(packets) = server.get_packets_to_send(client_id) else {
                 continue;
             };
 
             let mut client_disconnected = false;
             for packet in packets {
-                let (send_result, socket_id, addr) = match self.netcode_server.generate_payload_packet(client_id, packet) {
+                let (send_result, socket_id, addr) = match self.netcode_server.generate_payload_packet(slot_idx, client_id, packet) {
                     Ok((socket_id, addr, payload)) => (self.sockets[socket_id].send(addr, payload), socket_id, addr),
                     Err(e) => {
                         log::error!("Failed to encrypt payload packet for client {client_id}: {e}");
@@ -243,6 +241,10 @@ impl NetcodeServerTransport {
                 server.remove_connection(client_id);
                 // Ignore the server result since this client is not connected.
                 let _ = self.netcode_server.disconnect(client_id);
+            } else {
+                // Follow up with a ping if keepalive is required.
+                let server_result = self.netcode_server.generate_client_ping(slot_idx, client_id);
+                handle_server_result(server_result, &mut self.sockets, server);
             }
         }
     }

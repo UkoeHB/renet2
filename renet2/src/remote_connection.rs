@@ -100,14 +100,13 @@ pub struct AckConfig {
     /// packet will be sent with acks. This is primarily needed to maintain rtt calculations, as a fallback if
     /// ack burst fails, and for cleanup of unacked sends.
     /// - Acks may be sent even if there were recent packets sent by us (this is not a keepalive condition).
-    /// - Will override the `renetcode2` keepalive if this is faster (see `NETCODE_SEND_RATE`).
     /// - Set it to a high number if you don't care about rtt or want to use reliable messages. Note that unacked sends
     ///   clean themselves up after a delay, but this timeout can reduce how much is tracked locally.
     /// - Uses two timers, one for 'any sequenced packet' and one for 'any acks'. A sequenced ack will be sent if either
     ///   timer exceeds `ack_send_timeout`. Note that ack bursts aren't automatically sequenced. Sequences are required
     ///   for rtt calculations.
     ///
-    /// Default: 250ms
+    /// Default: 250ms (this is `NETCODE_SEND_RATE` which means acks will be sent instead of `netcode` keepalive packets)
     pub ack_send_timeout: Duration,
     /// The number of times acks should be sent after receiving a reliable message from the paired client before
     /// falling back to the base ack send cadence. Tradeoff between packet

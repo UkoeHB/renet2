@@ -157,15 +157,20 @@ fn server(addr: SocketAddr, private_key: [u8; NETCODE_KEY_BYTES]) {
             };
         }
 
+        for (slot_idx, client_id) in server.clients_id_with_slots().into_iter() {
+            let server_result = server.update_client(slot_idx, client_id);
+            handle_server_result(server_result, &udp_socket, &mut received_messages, &mut usernames);
+        }
+
         for text in received_messages.iter() {
-            for client_id in server.clients_id().iter() {
-                let (_, addr, payload) = server.generate_payload_packet(*client_id, text.as_bytes()).unwrap();
+            for (slot_idx, client_id) in server.clients_id_with_slots().into_iter() {
+                let (_, addr, payload) = server.generate_payload_packet(slot_idx, client_id, text.as_bytes()).unwrap();
                 udp_socket.send_to(payload, addr).unwrap();
             }
         }
 
-        for client_id in server.clients_id().into_iter() {
-            let server_result = server.update_client(client_id);
+        for (slot_idx, client_id) in server.clients_id_with_slots().into_iter() {
+            let server_result = server.generate_client_ping(slot_idx, client_id);
             handle_server_result(server_result, &udp_socket, &mut received_messages, &mut usernames);
         }
 
@@ -188,19 +193,6 @@ fn client(authentication: ClientAuthentication) {
             panic!("Client error: {:?}", err);
         }
 
-        match stdin_channel.try_recv() {
-            Ok(text) => {
-                if client.is_connected() {
-                    let (addr, payload) = client.generate_payload_packet(text.as_bytes()).unwrap();
-                    udp_socket.send_to(payload, addr).unwrap();
-                } else {
-                    println!("Client is not yet connected");
-                }
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => panic!("Stdin channel disconnected"),
-        }
-
         loop {
             match udp_socket.recv_from(&mut buffer) {
                 Ok((len, addr)) => {
@@ -218,10 +210,25 @@ fn client(authentication: ClientAuthentication) {
                 Err(e) => panic!("Socket error: {}", e),
             };
         }
+        client.update(Instant::now() - last_updated);
 
-        if let Some((packet, addr)) = client.update(Instant::now() - last_updated) {
+        match stdin_channel.try_recv() {
+            Ok(text) => {
+                if client.is_connected() {
+                    let (addr, payload) = client.generate_payload_packet(text.as_bytes()).unwrap();
+                    udp_socket.send_to(payload, addr).unwrap();
+                } else {
+                    println!("Client is not yet connected");
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => panic!("Stdin channel disconnected"),
+        }
+
+        if let Some((packet, addr)) = client.generate_ping() {
             udp_socket.send_to(packet, addr).unwrap();
         }
+
         last_updated = Instant::now();
         thread::sleep(Duration::from_millis(50));
     }
