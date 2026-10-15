@@ -46,6 +46,13 @@ struct ConnectTokenEntry {
 /// A server that can generate packets from connect clients, that are encrypted, or process
 /// incoming encrypted packets from clients. The server is agnostic from the transport layer, only
 /// consuming and generating bytes that can be transported in any way desired.
+///
+/// Expected sequence each tick:
+/// - [`Self::update`]
+/// - [`Self::process_packet`] for incoming packets
+/// - [`Self::update_client`] for each client
+/// - [`Self::generate_payload_packet`] for outgoing packets per client
+/// - [`Self::generate_client_ping`] to get a keepalive packet for each client
 #[derive(Debug)]
 pub struct NetcodeServer {
     sockets: Vec<ServerSocketConfig>,
@@ -471,6 +478,7 @@ impl NetcodeServer {
     /// Returns an encoded packet payload to be sent to the client.
     pub fn generate_payload_packet<'s>(
         &'s mut self,
+        slot_idx: usize,
         client_id: u64,
         payload: &[u8],
     ) -> Result<(usize, SocketAddr, &'s mut [u8]), NetcodeError> {
@@ -478,7 +486,7 @@ impl NetcodeServer {
             return Err(NetcodeError::PayloadAboveLimit);
         }
 
-        if let Some(client) = find_client_mut_by_id(&mut self.clients, client_id) {
+        if let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) {
             let packet = Packet::Payload(payload);
             let len = packet.encode(
                 &mut self.out,
@@ -684,9 +692,24 @@ impl NetcodeServer {
         self.clients.iter().filter_map(|slot| slot.as_ref().map(|client| client.client_id))
     }
 
+    /// Returns the ids and internal slot indices from the connected clients (iterator).
+    pub fn clients_id_iter_with_slots(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
+        self.clients.iter().enumerate().filter_map(|(idx, slot)| {
+            match slot {
+                Some(client) => Some((idx, client.client_id)),
+                None => None
+            }
+        })
+    }
+
     /// Returns the ids from the connected clients.
     pub fn clients_id(&self) -> Vec<u64> {
         self.clients_id_iter().collect()
+    }
+
+    /// Returns the ids from the connected clients with their internal slot index so subsequent accesses are faster.
+    pub fn clients_id_with_slots(&self) -> Vec<(usize, u64)> {
+        self.clients_id_iter_with_slots().collect()
     }
 
     /// Returns the maximum number of clients that can be connected.
@@ -731,91 +754,100 @@ impl NetcodeServer {
     /// ```
     /// # use renetcode2::ServerResult;
     /// # let mut server = renetcode2::NetcodeServer::__test();
-    /// for client_id in server.clients_id().into_iter() {
-    ///     match server.update_client(client_id) {
+    /// for (client_id, slot_idx) in server.clients_id_with_slots().into_iter() {
+    ///     match server.update_client(client_id, slot_idx) {
     ///         ServerResult::PacketToSend { payload, socket_id, addr } => send_to(payload, socket_id, addr),
     ///         _ => { /* ... */ }
     ///     }
     /// }
     /// # fn send_to(p: &[u8], socket_id: usize, addr: std::net::SocketAddr) {}
     /// ```
-    pub fn update_client(&mut self, client_id: u64) -> ServerResult<'_, '_> {
-        let slot = match find_client_slot_by_id(&self.clients, client_id) {
-            None => return ServerResult::None,
-            Some(slot) => slot,
+    pub fn update_client(&mut self, slot_idx: usize, client_id: u64) -> ServerResult<'_, '_> {
+        let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) else {
+            return ServerResult::None;
         };
 
-        if let Some(client) = &mut self.clients[slot] {
-            let connection_timed_out = client.timeout_seconds > 0
-                && (client.last_packet_received_time + Duration::from_secs(client.timeout_seconds as u64) < self.current_time);
-            if connection_timed_out {
-                log::debug!("Client {} disconnected, connection timed out", client.client_id);
-                client.state = ConnectionState::Disconnected;
-            }
-            let socket_id = client.socket_id;
+        let connection_timed_out = client.timeout_seconds > 0
+            && (client.last_packet_received_time + Duration::from_secs(client.timeout_seconds as u64) < self.current_time);
+        if connection_timed_out {
+            log::debug!("Client {} disconnected, connection timed out", client.client_id);
+            client.state = ConnectionState::Disconnected;
+        }
+        let socket_id = client.socket_id;
 
-            if client.state == ConnectionState::Disconnected {
-                let packet = Packet::Disconnect;
-                let sequence = client.sequence;
-                let send_key = client.send_key;
-                let addr = client.addr;
-                self.clients[slot] = None;
+        if client.state == ConnectionState::Disconnected {
+            let packet = Packet::Disconnect;
+            let sequence = client.sequence;
+            let send_key = client.send_key;
+            let addr = client.addr;
+            self.clients[slot_idx] = None;
 
-                let len = match packet.encode(
-                    &mut self.out,
-                    self.protocol_id,
-                    Some((sequence, &send_key)),
-                    self.sockets[socket_id].needs_encryption,
-                ) {
-                    Err(e) => {
-                        log::error!("Failed to encode disconnect packet: {}", e);
-                        return ServerResult::ClientDisconnected {
-                            client_id,
-                            socket_id,
-                            addr,
-                            payload: None,
-                        };
-                    }
-                    Ok(len) => len,
-                };
+            let len = match packet.encode(
+                &mut self.out,
+                self.protocol_id,
+                Some((sequence, &send_key)),
+                self.sockets[socket_id].needs_encryption,
+            ) {
+                Err(e) => {
+                    log::error!("Failed to encode disconnect packet: {}", e);
+                    return ServerResult::ClientDisconnected {
+                        client_id,
+                        socket_id,
+                        addr,
+                        payload: None,
+                    };
+                }
+                Ok(len) => len,
+            };
 
-                return ServerResult::ClientDisconnected {
-                    client_id,
-                    socket_id,
-                    addr,
-                    payload: Some(&mut self.out[..len]),
-                };
-            }
-
-            if client.last_packet_send_time + NETCODE_SEND_RATE <= self.current_time {
-                let packet = Packet::KeepAlive {
-                    client_index: slot as u32,
-                    max_clients: self.max_clients as u32,
-                };
-
-                let len = match packet.encode(
-                    &mut self.out,
-                    self.protocol_id,
-                    Some((client.sequence, &client.send_key)),
-                    self.sockets[socket_id].needs_encryption,
-                ) {
-                    Err(e) => {
-                        log::error!("Failed to encode keep alive packet: {}", e);
-                        return ServerResult::None;
-                    }
-                    Ok(len) => len,
-                };
-                client.sequence += 1;
-                client.last_packet_send_time = self.current_time;
-                return ServerResult::PacketToSend {
-                    socket_id,
-                    addr: client.addr,
-                    payload: &mut self.out[..len],
-                };
-            }
+            return ServerResult::ClientDisconnected {
+                client_id,
+                socket_id,
+                addr,
+                payload: Some(&mut self.out[..len]),
+            };
         }
 
         ServerResult::None
+    }
+
+    /// Call this after [`Self::generate_payload_packet`] in case a keepalive is needed.
+    pub fn generate_client_ping(&mut self, slot_idx: usize, client_id: u64) -> ServerResult<'_, '_> {
+        let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) else {
+            return ServerResult::None;
+        };
+        if client.state == ConnectionState::Disconnected
+            || client.last_packet_send_time + NETCODE_SEND_RATE > self.current_time
+        {
+            return ServerResult::None;
+        }
+
+        let socket_id = client.socket_id;
+        let packet = Packet::KeepAlive {
+            client_index: slot_idx as u32,
+            max_clients: self.max_clients as u32,
+        };
+
+        let len = match packet.encode(
+            &mut self.out,
+            self.protocol_id,
+            Some((client.sequence, &client.send_key)),
+            self.sockets[socket_id].needs_encryption,
+        ) {
+            Err(e) => {
+                log::error!("Failed to encode keep alive packet: {}", e);
+                return ServerResult::None;
+            }
+            Ok(len) => len,
+        };
+        client.sequence += 1;
+        client.last_packet_send_time = self.current_time;
+
+        ServerResult::PacketToSend {
+            socket_id,
+            addr: client.addr,
+            payload: &mut self.out[..len],
+        }
     }
 
     pub fn is_client_connected(&self, client_id: u64) -> bool {
@@ -862,6 +894,13 @@ impl NetcodeServer {
 
 fn find_client_mut_by_id(clients: &mut [Option<Connection>], client_id: u64) -> Option<&mut Connection> {
     clients.iter_mut().flatten().find(|c| c.client_id == client_id)
+}
+
+fn find_client_mut_by_id_and_slot(clients: &mut [Option<Connection>], slot_idx: usize, client_id: u64) -> Option<&mut Connection> {
+    match clients.get_mut(slot_idx) {
+        Some(Some(connection)) => if connection.client_id == client_id { Some(connection) } else { None }
+        _ => None
+    }
 }
 
 fn find_client_by_id(clients: &[Option<Connection>], client_id: u64) -> Option<&Connection> {
@@ -925,7 +964,8 @@ mod tests {
         .unwrap();
         let client_auth = ClientAuthentication::Secure { connect_token };
         let mut client = NetcodeClient::new(Duration::ZERO, client_auth).unwrap();
-        let (client_packet, _) = client.update(Duration::ZERO).unwrap();
+        client.update(Duration::ZERO);
+        let (client_packet, _) = client.generate_ping().unwrap();
 
         let result = server.process_packet(0, client_addr, client_packet);
         assert!(matches!(result, ServerResult::ConnectionAccepted { .. }));
@@ -935,7 +975,8 @@ mod tests {
         };
 
         assert!(!client.is_connected());
-        let (client_packet, _) = client.update(Duration::ZERO).unwrap();
+        client.update(Duration::ZERO);
+        let (client_packet, _) = client.generate_ping().unwrap();
         let result = server.process_packet(0, client_addr, client_packet);
 
         match result {
@@ -958,16 +999,19 @@ mod tests {
 
         for _ in 0..3 {
             let payload = [7u8; 300];
-            let (_, _, packet) = server.generate_payload_packet(client_id, &payload).unwrap();
+            let (_, _, packet) = server.generate_payload_packet(0, client_id, &payload).unwrap();
             let result_payload = client.process_packet(packet).unwrap();
             assert_eq!(payload, result_payload);
         }
 
-        let result = server.update_client(client_id);
+        let result = server.update_client(0, client_id);
         assert_eq!(result, ServerResult::None);
         server.update(NETCODE_SEND_RATE);
 
-        let result = server.update_client(client_id);
+        let result = server.update_client(0, client_id);
+        assert_eq!(result, ServerResult::None);
+
+        let result = server.generate_client_ping(0, client_id);
         match result {
             ServerResult::PacketToSend { payload, .. } => {
                 assert!(client.process_packet(payload).is_none());
