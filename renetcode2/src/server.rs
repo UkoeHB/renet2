@@ -486,7 +486,7 @@ impl NetcodeServer {
             return Err(NetcodeError::PayloadAboveLimit);
         }
 
-        if let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) {
+        if let Some(client) = find_client_mut_by_slot_and_id(&mut self.clients, slot_idx, client_id) {
             let packet = Packet::Payload(payload);
             let len = packet.encode(
                 &mut self.out,
@@ -692,7 +692,7 @@ impl NetcodeServer {
         self.clients.iter().filter_map(|slot| slot.as_ref().map(|client| client.client_id))
     }
 
-    /// Returns the ids and internal slot indices from the connected clients (iterator).
+    /// Returns the internal slot indices and client ids from the connected clients (iterator).
     pub fn clients_id_iter_with_slots(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
         self.clients
             .iter()
@@ -705,7 +705,7 @@ impl NetcodeServer {
         self.clients_id_iter().collect()
     }
 
-    /// Returns the ids from the connected clients with their internal slot index so subsequent accesses are faster.
+    /// Returns the internal slot indices and client ids from the connected clients.
     pub fn clients_id_with_slots(&self) -> Vec<(usize, u64)> {
         self.clients_id_iter_with_slots().collect()
     }
@@ -752,8 +752,8 @@ impl NetcodeServer {
     /// ```
     /// # use renetcode2::ServerResult;
     /// # let mut server = renetcode2::NetcodeServer::__test();
-    /// for (client_id, slot_idx) in server.clients_id_with_slots().into_iter() {
-    ///     match server.update_client(client_id, slot_idx) {
+    /// for (slot_idx, client_id) in server.clients_id_with_slots().into_iter() {
+    ///     match server.update_client(slot_idx, client_id) {
     ///         ServerResult::PacketToSend { payload, socket_id, addr } => send_to(payload, socket_id, addr),
     ///         _ => { /* ... */ }
     ///     }
@@ -761,7 +761,7 @@ impl NetcodeServer {
     /// # fn send_to(p: &[u8], socket_id: usize, addr: std::net::SocketAddr) {}
     /// ```
     pub fn update_client(&mut self, slot_idx: usize, client_id: u64) -> ServerResult<'_, '_> {
-        let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) else {
+        let Some(client) = find_client_mut_by_slot_and_id(&mut self.clients, slot_idx, client_id) else {
             return ServerResult::None;
         };
 
@@ -811,7 +811,7 @@ impl NetcodeServer {
 
     /// Call this after [`Self::generate_payload_packet`] in case a keepalive is needed.
     pub fn generate_client_ping(&mut self, slot_idx: usize, client_id: u64) -> ServerResult<'_, '_> {
-        let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) else {
+        let Some(client) = find_client_mut_by_slot_and_id(&mut self.clients, slot_idx, client_id) else {
             return ServerResult::None;
         };
         if client.state == ConnectionState::Disconnected || client.last_packet_send_time + NETCODE_SEND_RATE > self.current_time {
@@ -892,17 +892,13 @@ fn find_client_mut_by_id(clients: &mut [Option<Connection>], client_id: u64) -> 
     clients.iter_mut().flatten().find(|c| c.client_id == client_id)
 }
 
-fn find_client_mut_by_id_and_slot(clients: &mut [Option<Connection>], slot_idx: usize, client_id: u64) -> Option<&mut Connection> {
-    match clients.get_mut(slot_idx) {
-        Some(Some(connection)) => {
-            if connection.client_id == client_id {
-                Some(connection)
-            } else {
-                None
-            }
-        }
-        _ => None,
+fn find_client_mut_by_slot_and_id(clients: &mut [Option<Connection>], slot_idx: usize, client_id: u64) -> Option<&mut Connection> {
+    if let Some(Some(connection)) = clients.get_mut(slot_idx)
+        && connection.client_id == client_id
+    {
+        return Some(connection);
     }
+    None
 }
 
 fn find_client_by_id(clients: &[Option<Connection>], client_id: u64) -> Option<&Connection> {
