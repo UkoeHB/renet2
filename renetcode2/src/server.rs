@@ -694,12 +694,10 @@ impl NetcodeServer {
 
     /// Returns the ids and internal slot indices from the connected clients (iterator).
     pub fn clients_id_iter_with_slots(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
-        self.clients.iter().enumerate().filter_map(|(idx, slot)| {
-            match slot {
-                Some(client) => Some((idx, client.client_id)),
-                None => None
-            }
-        })
+        self.clients
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, slot)| slot.as_ref().map(|client| (idx, client.client_id)))
     }
 
     /// Returns the ids from the connected clients.
@@ -816,9 +814,7 @@ impl NetcodeServer {
         let Some(client) = find_client_mut_by_id_and_slot(&mut self.clients, slot_idx, client_id) else {
             return ServerResult::None;
         };
-        if client.state == ConnectionState::Disconnected
-            || client.last_packet_send_time + NETCODE_SEND_RATE > self.current_time
-        {
+        if client.state == ConnectionState::Disconnected || client.last_packet_send_time + NETCODE_SEND_RATE > self.current_time {
             return ServerResult::None;
         }
 
@@ -898,8 +894,14 @@ fn find_client_mut_by_id(clients: &mut [Option<Connection>], client_id: u64) -> 
 
 fn find_client_mut_by_id_and_slot(clients: &mut [Option<Connection>], slot_idx: usize, client_id: u64) -> Option<&mut Connection> {
     match clients.get_mut(slot_idx) {
-        Some(Some(connection)) => if connection.client_id == client_id { Some(connection) } else { None }
-        _ => None
+        Some(Some(connection)) => {
+            if connection.client_id == client_id {
+                Some(connection)
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
