@@ -5,27 +5,27 @@
 
 *Fork of [renet](https://github.com/lucaspoffo/renet)*
 
-Renet2 is a network library for Server/Client games written in rust. It is focused on fast-paced games such as FPS, and competitive games.
+Renet2 is a networking library for Server/Client games. It is focused on fast-paced competitive games such as FPS, but is also suitable for slow-paced games.
 
 Provides the following features:
 
-- Client/Server connection management
-- Message based communication using channels, they can have different guarantees:
+- Server/Client connection management
+- Message based communication using channels:
     - ReliableOrdered: guarantee of message delivery and order
     - ReliableUnordered: guarantee of message delivery but not order
     - Unreliable: no guarantee of message delivery or order
 - Packet fragmention and reassembly
-- Authentication and encryption, using [renetcode2](https://github.com/UkoeHB/renet2/tree/main/renetcode2)
-    - The transport layer can be customizable. The default transport can be disabled and replaced with a custom one.
-    - The underlying data transport/socket can be customized. Both unencrypted (e.g. UDP) and encrypted (e.g. WebTransport) data transports are supported.
-- Built-in UDP sockets, in-memory sockets, WebTransport sockets, and WebSocket sockets for flexible, cross-platform networking using the `netcode` protocol.
+- Authentication and encryption using [renetcode2](https://github.com/UkoeHB/renet2/tree/main/renetcode2)
+    - The underlying data transport/socket can be customized. Both unencrypted (e.g. UDP/in-memory) and encrypted (e.g. WebTransport/WebSocket) data transports are supported.
+    - The `renetcode2` transport layer can be replaced with a custom one (e.g. `renet2_steam` has Stream transports that integrate with the message channel layer from `renet2`).
+- Built-in UDP sockets, in-memory sockets, WebTransport sockets, and WebSocket sockets for flexible cross-platform networking using the `netcode` protocol.
 
 
 ## Differences from `renet`
 
 ### `netcode` protocol changes
 
-Renet2 extends the original [netcode](https://github.com/networkprotocol/netcode) protocol with:
+Extended the original [netcode](https://github.com/networkprotocol/netcode) protocol with:
 
 - Optional packet encryption. This supports data transports that do their own encryption.
 - Optional transport reliability. This supports data transports that are automatically reliable.
@@ -35,12 +35,14 @@ See `renetcode2/NETCODE_EXTENSIONS.md`.
 
 ### Features
 
-- Includes built-in data transports: UDP, memory channels, WebTransport, WebSockets.
+- Built-in data transports: UDP, memory channels, WebTransport, WebSockets.
     - See `src/examples` for a fully cross-platform demo.
+- New `renet2_setup` crate for setting up cross-platform servers and clients.
 
 ### Improvements
 
-- Ack timeout mechanism with ack bursts for reliable messages in place of the unlimited ack loop in `renet`. See the new field for `AckConfig` in `ConnectionConfig`. Also includes ack inlining in messages for more efficient packets.
+- Reworked the reliability layer's ack protocol to reduce bandwidth. See `ConnectionConfig::ack_config`.
+- Bandwidth and performance optimizations.
 
 
 ## Building docs
@@ -50,7 +52,7 @@ Build workspace docs (no WASM):
 cargo doc --open --no-deps --all-features
 ```
 
-Build WASM docs (`renet2_netcode` workspace crate only):
+Build WASM docs (`renet2_netcode` crate only):
 ```
 cd renet2_netcode &&\
 cargo doc --open --no-deps --no-default-features --features=wt_client_transport,ws_client_transport --target wasm32-unknown-unknown
@@ -60,7 +62,7 @@ cargo doc --open --no-deps --no-default-features --features=wt_client_transport,
 ## Channels
 
 Renet communication is message based, and channels describe how the messages should be delivered.
-Channels are unidirectional, `ConnectionConfig.client_channels_config` describes the channels that the clients sends to the server, and `ConnectionConfig.server_channels_config` describes the channels that the server sends to the clients.
+Channels are unidirectional. `ConnectionConfig::client_channels_config` describes the channels that the clients sends to the server, and `ConnectionConfig::server_channels_config` describes the channels that the server sends to the clients.
 
 Each channel has its own configuration `ChannelConfig`:
 
@@ -93,12 +95,12 @@ let channel_config = ChannelConfig {
 
 ## Usage
 
-Renet aims to have a simple API that is easy to integrate with any code base. Poll for new messages at the start of a frame with `update`. Call `send_packets` from the transport layer to send packets to the client/server.
+Renet2 aims to have a simple API that is easy to integrate with any code base. Poll for new messages at the start of a frame with `update`. Call `send_packets` from the transport layer to send packets to the client/server.
 
 ### Server
 
 ```rust
-let mut server = RenetServer::new(ConnectionConfig::default());
+let mut server = RenetServer::new(ConnectionConfig::test());
 
 // Setup transport layer
 const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5000);
@@ -107,14 +109,15 @@ let server_config = ServerConfig {
     current_time: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap(),
     max_clients: 64,
     protocol_id: 0,
-    public_addresses: vec![SERVER_ADDR],
+    public_addresses: vec![vec![SERVER_ADDR]],
     authentication: ServerAuthentication::Unsecure
 };
-let mut transport = NetcodeServerTransport::new(server_config, socket).unwrap();
+let mut transport = NetcodeServerTransport::new(server_config, NativeSocket::new(socket).unwrap()).unwrap();
 
 // Your gameplay loop
 loop {
     let delta_time = Duration::from_millis(16);
+
     // Receive new messages and update clients
     server.update(delta_time);
     transport.update(delta_time, &mut server)?;
@@ -159,20 +162,21 @@ loop {
 ### Client
 
 ```rust
-let mut client = RenetClient::new(ConnectionConfig::default(), false);
+let mut client = RenetClient::new(ConnectionConfig::test(), false);
 
 // Setup transport layer
 const server_addr: SocketAddr = "127.0.0.1:5000".parse().unwrap();
 let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
 let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
 let authentication = ClientAuthentication::Unsecure {
+    socket_id: 0,
     server_addr,
     client_id: 0,
     user_data: None,
     protocol_id: 0,
 };
 
-let mut transport = NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
+let mut transport = NetcodeClientTransport::new(current_time, authentication, NativeSocket::new(socket).unwrap()).unwrap();
 
 // Your gameplay loop
 loop {
@@ -200,12 +204,15 @@ loop {
 
 ## Demos
 
-You can checkout the [echo examples](https://github.com/UkoeHB/renet2/tree/main/examples/) for a simple usage of the library. Usage:
+You can check out the minimal [echo example](https://github.com/UkoeHB/renet2/tree/main/renet2_netcode/examples) for basic usage of the library. Usage:
 
-- Server: `cargo run --example echo -- server 5000`
-- Client: `cargo run --example echo -- client 127.0.0.1:5000 CoolNickName`
+- `cd renet2`
+- Server: `cargo run --example echo_native -- server 5000`
+- Client: `cargo run --example echo_native -- client 127.0.0.1:5000 CoolNickName`
 
-Or you can look into the two demos that have more complex uses of renet:
+Or you can check out the cross-platform [echo example](https://github.com/UkoeHB/renet2/tree/main/examples/) that demonstrates a multi-platform setup.
+
+Or you can look into the two demos that have more complex uses of renet2:
 
 <details><summary>Bevy Demo</summary>
 <br/>
@@ -236,6 +243,8 @@ Check out [bevy_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_renet2) 
 Check out [bevy_replicon_renet2](https://github.com/UkoeHb/renet2/tree/main/bevy_replicon_renet2) if you want to use renet2 as a backend for [bevy_replicon](https://github.com/projectharmonia/bevy_replicon).
 
 Check out [renet2_steam](https://github.com/UkoeHb/renet2/tree/main/renet2_steam) if you want to use the steam transport layer instead of the default one.
+
+Check out [renet2_setup](https://github.com/UkoeHb/renet2/tree/main/renet2_setup) if you plan to use the `netcode` transports. It greatly simplifies setting up servers and clients for production environments.
 
 ## Visualizer
 

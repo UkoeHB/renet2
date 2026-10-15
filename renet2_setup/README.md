@@ -1,34 +1,34 @@
-Provides utilities for setting up `renet2` servers and clients.
+Utilities for setting up cross-platform `renet2` servers and clients.
 
 
 ## Server workflow
 
-1. Define a `GameServerSetupConfig` for your server.
-1. Collect the number of clients who will use each connection type into `ClientCounts`.
-    - Clients can send the server their preferred `ConnectionType` to aid in this (see the client workflow below).
-1. Make a `ConnectionConfig` with the channels for your renet2 connection with clients.
-    - This should match the `ConnectionConfig` used by your clients.
-    - If using the `bevy_replicon_renet2` crate, then you must obtain replicon-specific channels from `RepliconChannels`. Other channels must be constructed separately. Use `ConnectionConfigs::from_channels`.
-1. Call `setup_combo_renet2_server` to get `RenetServer`, `NetcodeServerTransport`, and `ConnectMetas`.
-    - If using the `bevy` feature, call `setup_combo_renet2_server_in_bevy` instead.
-1. Drive the `RenetServer` and `NetcodeServerTransport` forward.
-    - This is handled automatically if you use the `bevy_renet2` or `bevy_replicon_renet2` crates.
-1. Use `ConnectMetas` to create `ServerConnectTokens` for clients based on their `ConnectionTypes` (see the client workflow below).
-    - These 'metas' can be stored on a separate server from the game server.
+1. Define a [`GameServerSetupConfig`] for your server.
+1. Collect the number of clients who will use each connection type into [`ClientCounts`].
+    - Clients can send the server their preferred [`ConnectionType`] to aid in this (see the client workflow below). You can also assign each connection type to the max number of clients for a simpler approach (note: no `tokio` runtime will be spawned if there are zero WASM clients).
+1. Make a [`ConnectionConfig`](renet2::ConnectionConfig) with the channels for your renet2 connection with clients.
+    - This should match the [`ConnectionConfig`](renet2::ConnectionConfig) used by your clients.
+    - If using the `bevy_replicon_renet2` crate, then you must obtain replicon-specific channels from `RepliconChannels`. Other channels must be constructed separately. Use [`ConnectionConfigs::from_channels`](renet2::ConnectionConfig::from_channels).
+1. Call [`setup_combo_renet2_server`] to get [`RenetServer`](renet2::RenetServer), [`NetcodeServerTransport`](renet2_netcode::NetcodeServerTransport), and [`ConnectMetas`].
+    - If using the `bevy` feature, call [`setup_combo_renet2_server_in_bevy`] instead.
+1. Drive the [`RenetServer`](renet2::RenetServer) and [`NetcodeServerTransport`](renet2_netcode::NetcodeServerTransport) forward.
+    - This is handled automatically if you use the `bevy_renet2` or `bevy_replicon_renet2` crate plugins.
+1. Use the [`ConnectMetas`] to create [`ServerConnectTokens`](ServerConnectToken) for clients based on their [`ConnectionTypes`](ConnectionType) (see the client workflow below).
+    - Metas can be stored on a separate server from the game server and used to generate new connect tokens ad hoc (useful if clients disconnect and reconnect).
 
 ### In-memory connections
 
-Add in-memory clients to `ClientCounts` and follow the above steps.
+Add in-memory clients to [`ClientCounts`] and follow the above steps.
 
 ### WebTransport certificates
 
 This crate uses self-signed certificates to set up webtransport servers. Self-signed certificates only last 2 weeks, so if your game server lives longer than that and you need webtransport, then you should use the underlying renet2/renet2_netcode APIs instead of this crate.
 
-Self-signed certificates are not supported everywhere. We assume clients will fall back to websockets if webtransport with self-signed certs are unavailable. `ConnectionType::inferred` will detect the best connection type for each client.
+Self-signed certificates are not supported everywhere. We assume clients will fall back to websockets if webtransport with self-signed certs are unavailable. [`ConnectionType::inferred`] will detect the best connection type for each client.
 
 ### WebSocket TLS
 
-Websocket TLS requires a domain name in `GameServerSetupConfig` and the locations of PEM-encoded cert files (e.g. generated with Let's Encrypt). You must specify the `ws-native-tls` or `ws-rustls` feature in addition to `ws_server_transport` in order to use websocket certs. Note that `ws-native-tls` requires OpenSSL, which may need to be installed separately on your server host.
+Websocket TLS requires a domain name in [`GameServerSetupConfig`] and the locations of PEM-encoded cert files (e.g. generated with Let's Encrypt). You must specify the `ws-native-tls` or `ws-rustls` feature in addition to `ws_server_transport` in order to use websocket certs. Note that `ws-native-tls` requires OpenSSL, which may need to be installed separately on your server.
 
 If using `ws-rustls` and no `rustls::crypto::CryptoProvider` is installed, then `rustls::crypto::ring::default_provider().install_default()` will be called when setting up a websocket server.
 
@@ -39,18 +39,18 @@ A default `tokio` runtime is set up if a server needs webtransport or websockets
 
 ## Client workflow
 
-1. Send your `ConnectionType` to the game backend.
-    - Use `ConnectionType::inferred` to construct it.
-1. Receive `ServerConnectToken` from the game backend.
-1. Make a connect pack with `ClientConnectPack::new`.
-1. Make a `ConnectionConfig` with the channels for your renet2 connection with the server.
-    - This should match the `ConnectionConfig` used by the server.
-    - If using the `bevy_replicon_renet2` crate, then you must obtain replicon-specific channels from `RepliconChannels`. Other channels must be constructed separately. Use `ConnectionConfigs::from_channels`.
-1. Call `setup_renet2_client` to get `RenetClient` and `NetcodeClientTransport`.
-    - If using the `bevy` feature, call `setup_renet2_client_in_bevy` instead.
-1. Drive the `RenetClient` and `NetcodeClientTransport` forward.
-    - This is handled automatically if you use the `bevy_renet2` or `bevy_replicon_renet2` crates.
+1. Send your [`ConnectionType`] to the game backend.
+    - Use [`ConnectionType::inferred`] to construct it.
+1. Receive [`ServerConnectToken`] from the game backend.
+1. Make a connect pack with [`ClientConnectPack::new`].
+1. Make a [`ConnectionConfig`](renet2::ConnectionConfig) with the channels for your renet2 connection with the server.
+    - This should match the [`ConnectionConfig`](renet2::ConnectionConfig) used by the server.
+    - If using the `bevy_replicon_renet2` crate, then you must obtain replicon-specific channels from `RepliconChannels`. Other channels must be constructed separately. Use [`ConnectionConfigs::from_channels`](renet2::ConnectionConfig::from_channels).
+1. Call [`setup_renet2_client`] to get [`RenetClient`](renet2::RenetClient) and [`NetcodeClientTransport`](renet2_netcode::NetcodeClientTransport).
+    - If using the `bevy` feature, call [`setup_renet2_client_in_bevy`] instead.
+1. Drive the [`RenetClient`](renet2::RenetClient) and [`NetcodeClientTransport`](renet2_netcode::NetcodeClientTransport) forward.
+    - This is handled automatically if you use the `bevy_renet2` or `bevy_replicon_renet2` crate plugins.
 
 ### In-memory connections
 
-Receive `ServerConnectToken::Memory` from the local server (running in-memory with the client) and follow the above steps.
+Receive [`ServerConnectToken::Memory`] from the local server (running in-memory with the client) and follow the above steps.

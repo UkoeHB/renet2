@@ -4,9 +4,11 @@ use crate::common::ConnectionType;
 
 /// The number of clients that will connect to a server with different connection types.
 ///
-/// Used by [`setup_combo_renet2_server`] to set max-client limits and determine what server sockets are required.
+/// Used by [`setup_combo_renet2_server`][setup_link] to set max-client limits and determine what server sockets are required.
 /// Note that we assume clients will not change connection type throughout a game. If you want to allow clients
 /// to change connection type, then set each count below equal to the total number of clients.
+///
+/// [setup_link]: crate::renet2_setup::setup_combo_renet2_server
 #[derive(Debug, Default, Clone)]
 pub struct ClientCounts {
     /// The ids of in-memory clients that will connect.

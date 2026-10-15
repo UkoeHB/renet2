@@ -75,16 +75,14 @@ Channels need to be obtained only **after** registering all replication componen
 
 </div>
 
-## Replicon conditions
+## Replicon states
 
-The crate updates the running state of [`RepliconServer`](bevy_replicon::prelude::RepliconServer) and connection state of [`RepliconClient`](bevy_replicon::prelude::RepliconClient)
-based on the states of [`RenetServer`](renet2::RenetServer) and [`RenetClient`](renet2::RenetServer)
-in [`PreUpdate`](bevy::prelude::PreUpdate).
+The crate updates the [`ServerState`](bevy_replicon::prelude::ServerState) and
+[`ClientState`](bevy_replicon::prelude::ClientState) based on the states of [`RenetServer`](renet2::RenetServer)
+and [`RenetClient`](renet2::RenetServer) in [`PreUpdate`](bevy::prelude::PreUpdate).
 
-This means that [Replicon conditions](bevy_replicon::shared::common_conditions) won't work in schedules
-like [`Startup`](bevy::prelude::Startup). As a workaround, you can directly check if renet's resources are present. This may be resolved
-in the future once we have [observers for resources](https://github.com/bevyengine/bevy/issues/12231)
-to immediately react to changes.
+This means that states won't be updated in schedules like [`Startup`](bevy::prelude::Startup).
+As a workaround, you can directly check if Renet's resources are present.
 */
 #![cfg_attr(docsrs, feature(doc_cfg))]
 

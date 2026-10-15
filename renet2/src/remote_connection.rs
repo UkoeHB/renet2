@@ -381,7 +381,7 @@ impl RenetClient {
     /// Returns the packet loss for the connection.
     ///
     /// Only computed for sequenced packets (reliable packets and occasional ack packets).
-    /// Send acks more often with [`AckConfig::ack_timeout`] if you want this to be a higher-fidelity
+    /// Send acks more often with [`AckConfig::ack_send_timeout`] if you want this to be a higher-fidelity
     /// signal.
     pub fn packet_loss(&self) -> f64 {
         self.stats.packet_loss()

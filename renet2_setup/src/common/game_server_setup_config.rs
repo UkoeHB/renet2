@@ -55,7 +55,8 @@ pub struct GameServerSetupConfig {
     /// Location of certificate files to use for websocket servers.
     ///
     /// Format: (cert chain, private key).
-    /// Files must be PEM encoded.
+    /// - Feature `ws-native-tls`: files must be PEM encoded. The certs must be x509 and the privkey must be PKCS #8.
+    /// - Feature `ws-rustls`: files must be PEM encoded.
     pub wss_certs: Option<(PathBuf, PathBuf)>,
     /// Indicates if there is a TLS proxy set up for websocket connections.
     ///

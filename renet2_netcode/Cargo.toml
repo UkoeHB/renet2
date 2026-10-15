@@ -59,6 +59,7 @@ wt_server_transport = [
 
 # Enable the WebTransport client transport (WASM only)
 wt_client_transport = [
+  "dep:getrandom",
   "dep:async-channel",
   "dep:fragile",
   "dep:wasm-bindgen",
@@ -90,6 +91,7 @@ ws-native-tls = ["dep:tokio-native-tls"]
 
 # Enable the WebSocket client transport (WASM only)
 ws_client_transport = [
+  "dep:getrandom",
   "dep:anyhow",
   "dep:async-channel",
   "dep:wasm-bindgen",
@@ -116,6 +118,10 @@ serde = { version = "1.0", optional = true, features = ["derive"] }
 
 # In-memory transport socket
 crossbeam = { version = "0.8", optional = true }
+
+# WASM shared
+# Infects getrandom with the 'js' feature to avoid compile errors in WASM.
+getrandom = { version = "0.2", features = ["js"], optional = true }
 
 # WebTransport shared
 futures = { version = "0.3", optional = true }
