@@ -1,4 +1,11 @@
-use std::{collections::HashMap, net::SocketAddr, time::Duration};
+use std::{
+    collections::{
+        HashMap,
+        hash_map::Entry::{Occupied, Vacant},
+    },
+    net::SocketAddr,
+    time::Duration,
+};
 
 use crate::{
     NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, NETCODE_CONNECT_TOKEN_XNONCE_BYTES, NETCODE_KEY_BYTES, NETCODE_MAC_BYTES, NETCODE_MAX_CLIENTS,
@@ -37,10 +44,23 @@ struct Connection {
 
 #[derive(Debug, Copy, Clone)]
 struct ConnectTokenEntry {
-    time: Duration,
+    expires: u64,
     socket_id: usize,
     address: SocketAddr,
     mac: [u8; NETCODE_MAC_BYTES],
+}
+
+/// For `NetcodeServer::find_or_add_connect_token_entry`
+#[derive(Debug, Eq, PartialEq)]
+enum AddTokenResult {
+    /// The token is added
+    Added,
+    /// The token is already registered under the same address
+    HasEntry,
+    /// The token is already registered under a different address
+    HasEntryOtherAddr,
+    /// There are no token slots available (all are filled with non-expired tokens)
+    NoSlots,
 }
 
 /// A server that can generate packets from connect clients, that are encrypted, or process
@@ -65,6 +85,7 @@ pub struct NetcodeServer {
     challenge_sequence: u64,
     challenge_key: [u8; NETCODE_KEY_BYTES],
     current_time: Duration,
+    max_token_lifetime: u16,
     /// Minimum timestamp for connect token expiration.
     min_token_expire: u64,
     global_sequence: u64,
@@ -207,6 +228,7 @@ impl NetcodeServer {
             global_sequence: 0,
             challenge_key,
             current_time: config.current_time,
+            max_token_lifetime: config.max_token_lifetime,
             min_token_expire: config.current_time.as_secs().saturating_add(config.max_token_lifetime as u64),
             secure,
             out: [0u8; NETCODE_MAX_PACKET_BYTES],
@@ -237,38 +259,35 @@ impl NetcodeServer {
         self.current_time
     }
 
-    fn find_or_add_connect_token_entry(&mut self, new_entry: ConnectTokenEntry) -> bool {
-        let mut min = Duration::MAX;
-        let mut oldest_entry = 0;
-        let mut empty_entry = false;
-        let mut matching_entry = None;
+    fn find_or_add_connect_token_entry(&mut self, new_entry: ConnectTokenEntry) -> AddTokenResult {
+        let mut to_add = None;
+        let expire_ref = self.current_time.as_secs();
+
+        // Must iterate all to detect error conditions
         for (i, entry) in self.connect_token_entries.iter().enumerate() {
             match entry {
                 Some(e) => {
                     if e.mac == new_entry.mac {
-                        matching_entry = Some(e);
+                        if (e.socket_id == new_entry.socket_id) && (e.address == new_entry.address) {
+                            return AddTokenResult::HasEntry;
+                        }
+                        return AddTokenResult::HasEntryOtherAddr;
                     }
-                    if !empty_entry && e.time < min {
-                        oldest_entry = i;
-                        min = e.time;
+                    if e.expires <= expire_ref {
+                        to_add = Some(i);
                     }
                 }
                 None => {
-                    if !empty_entry {
-                        empty_entry = true;
-                        oldest_entry = i;
-                    }
+                    to_add = Some(i);
                 }
             }
         }
-
-        if let Some(entry) = matching_entry {
-            return (entry.socket_id == new_entry.socket_id) && (entry.address == new_entry.address);
+        if let Some(index) = to_add {
+            self.connect_token_entries[index] = Some(new_entry);
+            return AddTokenResult::Added;
         }
 
-        self.connect_token_entries[oldest_entry] = Some(new_entry);
-
-        true
+        AddTokenResult::NoSlots
     }
 
     /// Returns the user data from the connected client.
@@ -413,18 +432,30 @@ impl NetcodeServer {
         let connect_token_entry = ConnectTokenEntry {
             socket_id,
             address: addr,
-            time: self.current_time,
+            expires: expire_timestamp.min(self.current_time.as_secs() + self.max_token_lifetime as u64),
             mac,
         };
 
-        if !self.find_or_add_connect_token_entry(connect_token_entry) {
-            log::warn!("Connection request denied: connect token already has an entry for a different address");
-            return Ok(ServerResult::ConnectionDenied {
-                addr,
-                socket_id,
-                payload: None,
-            });
-        }
+        let new_token_entry = match self.find_or_add_connect_token_entry(connect_token_entry) {
+            AddTokenResult::Added => true,
+            AddTokenResult::HasEntry => false,
+            AddTokenResult::HasEntryOtherAddr => {
+                log::warn!("Connection request denied: connect token already has an entry for a different address");
+                return Ok(ServerResult::ConnectionDenied {
+                    addr,
+                    socket_id,
+                    payload: None,
+                });
+            }
+            AddTokenResult::NoSlots => {
+                log::warn!("Connection request denied: no available connect token slots - wait for one to expire");
+                return Ok(ServerResult::ConnectionDenied {
+                    addr,
+                    socket_id,
+                    payload: None,
+                });
+            }
+        };
 
         if self.clients.iter().flatten().count() >= self.max_clients {
             self.pending_clients.remove(&(socket_id, addr));
@@ -461,22 +492,43 @@ impl NetcodeServer {
 
         log::trace!("Connection request from Client {}", connect_token.client_id);
 
-        let pending = self.pending_clients.entry((socket_id, addr)).or_insert_with(|| Connection {
-            confirmed: false,
-            sequence: 0,
-            client_id: connect_token.client_id,
-            last_packet_received_time: self.current_time,
-            last_packet_send_time: self.current_time,
-            socket_id,
-            addr,
-            state: ConnectionState::PendingResponse,
-            send_key: connect_token.server_to_client_key,
-            receive_key: connect_token.client_to_server_key,
-            timeout_seconds: connect_token.timeout_seconds,
-            expire_timestamp,
-            user_data: connect_token.user_data,
-            replay_protection: ReplayProtection::new(),
-        });
+        let pending = match self.pending_clients.entry((socket_id, addr)) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => {
+                // We only add a pending client if it's associated with a new connect token entry. Token
+                // entry lifetimes are scoped to the lifetime of the pending client added at the same time
+                // since sequences reset on adding a new Connection (don't want to replay sequences with the
+                // same token).
+                if !new_token_entry {
+                    log::warn!(
+                        "Connection request denied: connect token has an entry but its corresponding pending \
+                        client entry was already removed - connect tokens cannot be reused"
+                    );
+                    return Ok(ServerResult::ConnectionDenied {
+                        addr,
+                        socket_id,
+                        payload: None,
+                    });
+                }
+
+                entry.insert(Connection {
+                    confirmed: false,
+                    sequence: 0,
+                    client_id: connect_token.client_id,
+                    last_packet_received_time: self.current_time,
+                    last_packet_send_time: self.current_time,
+                    socket_id,
+                    addr,
+                    state: ConnectionState::PendingResponse,
+                    send_key: connect_token.server_to_client_key,
+                    receive_key: connect_token.client_to_server_key,
+                    timeout_seconds: connect_token.timeout_seconds,
+                    expire_timestamp,
+                    user_data: connect_token.user_data,
+                    replay_protection: ReplayProtection::new(),
+                })
+            }
+        };
         pending.last_packet_received_time = self.current_time;
         pending.last_packet_send_time = self.current_time;
 
@@ -975,7 +1027,7 @@ mod tests {
         )
         .unwrap();
         let client_auth = ClientAuthentication::Secure { connect_token };
-        let mut client = NetcodeClient::new(Duration::ZERO, client_auth).unwrap();
+        let mut client = NetcodeClient::new(Duration::ZERO, client_auth.clone()).unwrap();
         client.update(Duration::ZERO);
         let (client_packet, _) = client.generate_ping().unwrap();
 
@@ -1056,6 +1108,14 @@ mod tests {
         }
 
         assert!(!server.is_client_connected(client_id));
+
+        // CLIENT CANNOT REUSE CONNECT TOKEN
+        let mut client = NetcodeClient::new(Duration::ZERO, client_auth).unwrap();
+        client.update(Duration::ZERO);
+        let (client_packet, _) = client.generate_ping().unwrap();
+
+        let result = server.process_packet(0, client_addr, client_packet);
+        assert!(matches!(result, ServerResult::ConnectionDenied { .. }));
     }
 
     #[test]
@@ -1064,23 +1124,29 @@ mod tests {
 
         let client_addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
         let mut connect_token = ConnectTokenEntry {
-            time: Duration::ZERO,
+            expires: 1,
             socket_id: 0,
             address: client_addr,
             mac: generate_random_bytes(),
         };
         // Allow first entry
-        assert!(server.find_or_add_connect_token_entry(connect_token));
+        assert_eq!(server.find_or_add_connect_token_entry(connect_token), AddTokenResult::Added);
         // Allow same token with the same address
-        assert!(server.find_or_add_connect_token_entry(connect_token));
+        assert_eq!(server.find_or_add_connect_token_entry(connect_token), AddTokenResult::HasEntry);
 
         // Don't allow same token with different socket id
         connect_token.socket_id = 1;
-        assert!(!server.find_or_add_connect_token_entry(connect_token));
+        assert_eq!(
+            server.find_or_add_connect_token_entry(connect_token),
+            AddTokenResult::HasEntryOtherAddr
+        );
         connect_token.socket_id = 0;
 
         // Don't allow same token with different address
         connect_token.address = "127.0.0.1:3001".parse().unwrap();
-        assert!(!server.find_or_add_connect_token_entry(connect_token));
+        assert_eq!(
+            server.find_or_add_connect_token_entry(connect_token),
+            AddTokenResult::HasEntryOtherAddr
+        );
     }
 }
