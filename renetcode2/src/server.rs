@@ -50,7 +50,7 @@ struct ConnectTokenEntry {
     mac: [u8; NETCODE_MAC_BYTES],
 }
 
-/// For `NetcodeServer::find_or_add_connect_token_entry`
+/// Return value of `NetcodeServer::find_or_add_connect_token_entry`
 #[derive(Debug, Eq, PartialEq)]
 enum AddTokenResult {
     /// The token is added
@@ -85,7 +85,6 @@ pub struct NetcodeServer {
     challenge_sequence: u64,
     challenge_key: [u8; NETCODE_KEY_BYTES],
     current_time: Duration,
-    max_token_lifetime: u16,
     /// Minimum timestamp for connect token expiration.
     min_token_expire: u64,
     global_sequence: u64,
@@ -224,11 +223,12 @@ impl NetcodeServer {
             protocol_id: config.protocol_id,
             connect_key,
             max_clients: config.max_clients,
+            // Paired with `challenge_key`, does not need a separate sequence space from global/clients.
             challenge_sequence: 0,
-            global_sequence: 0,
+            // Disjoin sequence space from client sequences since both are used with the same per-token keys.
+            global_sequence: 1u64 << 63,
             challenge_key,
             current_time: config.current_time,
-            max_token_lifetime: config.max_token_lifetime,
             min_token_expire: config.current_time.as_secs().saturating_add(config.max_token_lifetime as u64),
             secure,
             out: [0u8; NETCODE_MAX_PACKET_BYTES],
@@ -432,7 +432,7 @@ impl NetcodeServer {
         let connect_token_entry = ConnectTokenEntry {
             socket_id,
             address: addr,
-            expires: expire_timestamp.min(self.current_time.as_secs() + self.max_token_lifetime as u64),
+            expires: expire_timestamp,
             mac,
         };
 
