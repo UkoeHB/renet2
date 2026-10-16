@@ -43,6 +43,7 @@ See `renetcode2/NETCODE_EXTENSIONS.md`.
 
 - Reworked the reliability layer's ack protocol to reduce bandwidth. See `ConnectionConfig::ack_config`.
 - Bandwidth and performance optimizations.
+- Fixed security issues: [GHSA-v29p-3vj4-vg4f](https://github.com/mas-bandwidth/netcode/security/advisories/GHSA-v29p-3vj4-vg4f), [GHSA-3x95-24j9-7448](https://github.com/mas-bandwidth/netcode/security/advisories/GHSA-3x95-24j9-7448).
 
 
 ## Building docs

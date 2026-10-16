@@ -1,15 +1,15 @@
 # CHANGELOG
 
-## WIP
+## 1.0.0 - 10/16/26
 
-- Better handling of replay attacks in `renet2`.
-- Remove sequences from unreliable packets and acks in the `renet2` reliability layer. A sequence will be sent occasionally for rtt calculations, which may use the new `Packet::Sequence` type if there are no acks or otherwise inlined with ack ranges. **Breaking change to packet serialization**
+- Remove sequences from unreliable packets and acks in the `renet2` reliability layer. **Breaking change to packet serialization**
+  - A sequence will be sent occasionally for rtt calculations, which may use the new `Packet::Sequence` type if there are no acks or otherwise inlined with ack ranges.
 - End ack bursts early if possible.
-- Generate `netcode` keepalives after generating packets in the reliability layer to reduce redundant packets.
+- Move `netcode` keepalives after generating packets in the reliability layer to reduce redundant packets.
 - Harden connect token server handling in `renetcode2`.
   - [GHSA-v29p-3vj4-vg4f](https://github.com/mas-bandwidth/netcode/security/advisories/GHSA-v29p-3vj4-vg4f): connect token reuse after server restart or client disconnect
     - Added `ServerConfig::max_token_lifetime` which should match the expire duration of `ConnectTokens`. Tokens will be rejected if they expire before `server start time + max token lifetime`.
-    - Tokens will be rejected if they are reused after a disconnect or connection denied.
+    - Tokens will be rejected if they are reused after a disconnect or partially-established but then denied connection.
     - Tokens may now fail if you issue too many and they fill up the internal buffer (max length: 2048). Old tokens must expire to open token slots.
   - [GHSA-3x95-24j9-7448](https://github.com/mas-bandwidth/netcode/security/advisories/GHSA-3x95-24j9-7448): nonce reuse between global and per-client packets
     - `NetcodeServerTransport` global sequences now start at 2^63 on server start (internal fix).
